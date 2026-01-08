@@ -416,8 +416,11 @@ namespace IDE
 			{
 				CopyLibFiles(targetPath, workspaceOptions, options);
 
-			    String linkLine = scope String(isDebug ? "-g " : "-g -O2 "); //-O2 -Rpass=inline 
-																 //(doClangCPP ? "-lc++abi " : "") +
+			    String linkLine = scope String();
+				if (options.mCOptions.mEmitDebugInfo)
+					linkLine.Append("-g ");
+				if (!isDebug)
+					linkLine.Append("-O2 ");
 			    
 			    linkLine.Append("-o ");
 			    IDEUtils.AppendWithOptionalQuotes(linkLine, targetPath);

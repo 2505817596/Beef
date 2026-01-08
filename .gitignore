@@ -27,6 +27,7 @@ jbuild*/
 IDE/Tests/NewProject*/*
 *.csproj.user
 builds/*
+build_uclibc_arm/
 wasm/*
 BeefManaged/*
 BeefPerf.txt

@@ -152,6 +152,8 @@ namespace IDE
 					return 4;
 				if (name.StartsWith("armv"))
 					return 4;
+				if (name.StartsWith("arm-"))
+					return 4;
 				if (name.StartsWith("i686-"))
 					return 4;
 				return 8;
