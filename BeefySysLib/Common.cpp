@@ -23,15 +23,19 @@ extern "C"
 #include <direct.h>
 #endif
 
+#ifdef _MSC_VER
 #pragma warning(disable:4996)
 #pragma comment(lib, "winmm.lib")
+#endif
 
 int gBFArgC;
 char** gBFArgV;
 
 #ifdef BUMPALLOC_ETW_TRACING
 VSHeapTracker::CHeapTracker* Beefy::BumpAllocator::mVSHeapTracker = NULL;
+#ifdef _MSC_VER
 #pragma comment(lib, "VSCustomNativeHeapEtwProvider.lib")
+#endif
 #endif
 
 USING_NS_BF;

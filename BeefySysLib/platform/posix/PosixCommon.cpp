@@ -32,6 +32,11 @@
 #include <execinfo.h>
 #endif
 
+#if defined(BF_PLATFORM_LINUX) && !defined(BFP_HAS_EXECINFO)
+#define lseek64 lseek
+#define ftruncate64 ftruncate
+#endif
+
 #ifdef BFP_HAS_BACKTRACE
 
 #ifdef BFP_BACKTRACE_PATH
@@ -584,6 +589,7 @@ typedef void(*CrashInfoFunc)();
 static String gCmdLine;
 static String gExePath;
 
+#if !defined(__UCLIBC__)
 typedef struct _Unwind_Context _Unwind_Context;   // opaque
 
 typedef enum {
@@ -642,6 +648,12 @@ static bool FancyBacktrace()
     return true;
 #endif
 }
+#else
+static bool FancyBacktrace()
+{
+    return false;
+}
+#endif
 
 static void Crashed()
 {

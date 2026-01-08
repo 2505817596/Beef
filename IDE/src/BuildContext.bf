@@ -535,6 +535,21 @@ namespace IDE
 			        	clangExePath = scope String("/usr/bin/c++");
 			        }
 				}
+				bool useOverrideCompiler = false;
+				Dictionary<String, String> envVars = scope .();
+				Environment.GetEnvironmentVariables(envVars);
+
+				String overrideCompiler = null;
+				if (!envVars.TryGetValue("BEEF_CXX", out overrideCompiler))
+					envVars.TryGetValue("BEEF_CC", out overrideCompiler);
+
+				if (!String.IsNullOrEmpty(overrideCompiler))
+				{
+					gccExePath = overrideCompiler;
+					clangExePath = overrideCompiler;
+					isWSL = false;
+					useOverrideCompiler = true;
+				}
 
 				UpdateCacheStr(project, linkLine, workspaceOptions, options, depPaths, libPaths);
 
@@ -591,7 +606,11 @@ namespace IDE
 
 			        String compilerExePath = (workspaceOptions.mToolsetType == .GNU) ? gccExePath : clangExePath;
 					String workingDir = scope String();
-					if (!llvmDir.IsEmpty)
+					if (useOverrideCompiler)
+					{
+						Path.GetDirectoryPath(targetPath, workingDir);
+					}
+					else if (!llvmDir.IsEmpty)
 					{
 						workingDir.Append(llvmDir, "bin");
 					}
@@ -884,6 +903,38 @@ namespace IDE
 		    String fromDir;
 		    
 		    fromDir = scope String(gApp.mInstallDir);
+			String overrideDir = null;
+			Dictionary<String, String> envVars = scope .();
+			Environment.GetEnvironmentVariables(envVars);
+			if (envVars.TryGetValue("BEEF_RT_DIR", out overrideDir))
+			{
+				if (!String.IsNullOrEmpty(overrideDir))
+				{
+					fromDir.Set(overrideDir);
+					IDEUtils.FixFilePath(fromDir);
+					if (!fromDir.EndsWith(IDEUtils.cNativeSlash))
+						fromDir.Append(IDEUtils.cNativeSlash);
+				}
+			}
+			else
+			{
+				String platformId = scope .();
+				if (!workspaceOptions.mTargetTriple.IsWhiteSpace)
+					platformId.Append(workspaceOptions.mTargetTriple);
+				else
+					platformId.Append(gApp.mPlatformName);
+
+				String platformDir = scope String(fromDir);
+				platformDir.Append("rt");
+				platformDir.Append(IDEUtils.cNativeSlash);
+				platformDir.Append(platformId);
+				if (Directory.Exists(platformDir))
+				{
+					fromDir.Set(platformDir);
+					if (!fromDir.EndsWith(IDEUtils.cNativeSlash))
+						fromDir.Append(IDEUtils.cNativeSlash);
+				}
+			}
 
 			bool AddLib(String dllName)
 			{

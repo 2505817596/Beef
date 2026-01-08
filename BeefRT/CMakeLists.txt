@@ -49,6 +49,9 @@ if (DEFINED BF_DISABLE_FFI)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBF_DISABLE_FFI")
 endif()
 
+set(BF_FFI_TARGET_DIR "" CACHE STRING "libffi target directory under BeefySysLib/third_party/libffi")
+set(BF_FFI_ARCH "" CACHE STRING "libffi arch subdir (x86/aarch64/arm)")
+
 if (${IOS})
   include_directories(
     .
@@ -155,7 +158,6 @@ else()
     ../BeefySysLib/
     ../BeefySysLib/third_party
     ../BeefySysLib/third_party/freetype/include
-    ../BeefySysLib/third_party/libffi/${CMAKE_HOST_SYSTEM_PROCESSOR}-unknown-linux-gnu/include
     ../
     ../extern
     ../extern/llvm/include
@@ -164,6 +166,17 @@ else()
 
     ../BeefySysLib/platform/linux
   )
+  if (BF_FFI_TARGET_DIR)
+    include_directories(
+      ../BeefySysLib/third_party/libffi/${BF_FFI_TARGET_DIR}
+      ../BeefySysLib/third_party/libffi/${BF_FFI_TARGET_DIR}/include
+    )
+  else()
+    include_directories(
+      ../BeefySysLib/third_party/libffi/${CMAKE_HOST_SYSTEM_PROCESSOR}-unknown-linux-gnu
+      ../BeefySysLib/third_party/libffi/${CMAKE_HOST_SYSTEM_PROCESSOR}-unknown-linux-gnu/include
+    )
+  endif()
 endif()
 
 ############## Artefacts Output #################
@@ -287,13 +300,27 @@ elseif (${ANDROID})
         ../BeefySysLib/platform/android/AndroidCommon.cpp
     )
 elseif ((NOT DEFINED BF_DISABLE_FFI))
-    if(EXISTS "../BeefySysLib/third_party/libffi/${CMAKE_HOST_SYSTEM_PROCESSOR}-unknown-linux-gnu")
+    if (BF_FFI_TARGET_DIR)
+      set(TARGET_TRIPLE_DIR "${BF_FFI_TARGET_DIR}")
+    elseif(EXISTS "../BeefySysLib/third_party/libffi/${CMAKE_HOST_SYSTEM_PROCESSOR}-unknown-linux-gnu")
       set(TARGET_TRIPLE_DIR "${CMAKE_HOST_SYSTEM_PROCESSOR}-unknown-linux-gnu")
     elseif(EXISTS "../BeefySysLib/third_party/libffi/${CMAKE_HOST_SYSTEM_PROCESSOR}-pc-linux-gnu")
       set(TARGET_TRIPLE_DIR "${CMAKE_HOST_SYSTEM_PROCESSOR}-pc-linux-gnu")
     endif()
 
-    if (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "x86_64")
+    if (TARGET_TRIPLE_DIR STREQUAL "")
+      message(FATAL_ERROR "libffi target directory not found. Set BF_FFI_TARGET_DIR.")
+    endif()
+
+    if (BF_FFI_ARCH)
+      set(FFI_ARCH "${BF_FFI_ARCH}")
+    elseif (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "x86_64")
+      set(FFI_ARCH "x86")
+    else()
+      set(FFI_ARCH "aarch64")
+    endif()
+
+    if (FFI_ARCH STREQUAL "x86")
       file(GLOB SRC_FILES_OS
         ../BeefySysLib/platform/linux/BFPlatform.cpp
         ../BeefySysLib/platform/linux/LinuxCommon.cpp
@@ -307,6 +334,19 @@ elseif ((NOT DEFINED BF_DISABLE_FFI))
         ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/x86/unix64.o
         ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/x86/ffiw64.o
         ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/x86/win64.o
+      )
+    elseif (FFI_ARCH STREQUAL "arm")
+      file(GLOB SRC_FILES_OS
+        ../BeefySysLib/platform/linux/BFPlatform.cpp
+        ../BeefySysLib/platform/linux/LinuxCommon.cpp
+        ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/prep_cif.o
+        ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/types.o
+        ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/raw_api.o
+        ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/java_raw_api.o
+        ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/closures.o
+        ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/tramp.o
+        ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/arm/ffi.o
+        ../BeefySysLib/third_party/libffi/${TARGET_TRIPLE_DIR}/src/arm/sysv.o
       )
     else()
       file(GLOB SRC_FILES_OS

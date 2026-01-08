@@ -11393,6 +11393,19 @@ namespace IDE
 			clangOptions.Append(quotedObjName);
 
 			String compilerExePath = (options.mCOptions.mCompilerType == Project.CCompilerType.GCC) ? gccExePath : isC ? clangCExePath : clangCppExePath;
+			Dictionary<String, String> envVars = scope .();
+			Environment.GetEnvironmentVariables(envVars);
+
+			String overrideCompiler = null;
+			if (isC)
+				envVars.TryGetValue("BEEF_CC", out overrideCompiler);
+			else
+				envVars.TryGetValue("BEEF_CXX", out overrideCompiler);
+
+			if (!String.IsNullOrEmpty(overrideCompiler))
+				compilerExePath = overrideCompiler;
+
+
 			return QueueRun(compilerExePath, clangOptions, IDEApp.sApp.mInstallDir, .UTF8);
 		}
 

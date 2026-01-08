@@ -165,7 +165,16 @@ namespace System.FFI
 
 #else //!BF_PLATFORM_WINDOWS
 
-#if BF_64_BIT && !BF_MACHINE_AARCH64
+#if BF_MACHINE_ARM
+	[AllowDuplicates]
+	enum FFIABI : int32
+	{
+		NotSet = 0,
+		SysV,
+		VFP,
+		Default = VFP
+	}
+#elif BF_64_BIT && !BF_MACHINE_AARCH64
 	[AllowDuplicates]
 	enum FFIABI : int32
 	{
@@ -198,6 +207,12 @@ namespace System.FFI
 			FFIType *mRType;
 			uint32 mBytes;
 			uint32 mFlags;
+#if BF_MACHINE_ARM
+			int32 mVfpUsed;
+			uint16 mVfpRegFree;
+			uint16 mVfpNArgs;
+			int8[16] mVfpArgs;
+#endif
 		}
 
 #if !BF_CRT_DISABLE
