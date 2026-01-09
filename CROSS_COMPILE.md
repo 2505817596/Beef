@@ -15,38 +15,34 @@ Record the source changes and commands needed to reproduce cross compilation.
 3) BeefySysLib/platform/posix/PosixCommon.cpp
    - uClibc: map lseek64/ftruncate64 -> lseek/ftruncate.
    - uClibc: disable _Unwind backtrace; FancyBacktrace returns false.
-4) BeefBuild/BeefProj.toml (host build fix)
-   - Linux64 OtherLinkFlags include LLVM 19:
-     - -L/usr/lib/llvm-19/lib -lLLVM-19 -Wl,-rpath -Wl,$ORIGIN
-   - Ensure a space before -Wl.
-5) BeefRT/CMakeLists.txt (FFI cross support)
+4) BeefRT/CMakeLists.txt (FFI cross support)
    - Add BF_FFI_TARGET_DIR / BF_FFI_ARCH cache variables.
    - Use BF_FFI_TARGET_DIR for libffi include path and object list.
    - Add arm32 libffi object list (src/arm/ffi.o, src/arm/sysv.o).
-6) BeefLibs/corlib/src/FFI/Function.bf (ARM32 FFI)
+5) BeefLibs/corlib/src/FFI/Function.bf (ARM32 FFI)
    - Add ARM VFP fields to FFICIF to match libffi's ffi_cif layout.
    - Default ABI on ARM to VFP for hard-float (so integer returns work).
 
 ## zig cross compile (musl)
-Use wrapper scripts so BeefBuild can call zig with the required subcommand.
+Use wrapper scripts so BeefBuild always calls `zig cc/c++` (no IDE changes needed).
 
-zig-cxx:
-```bash
-#!/bin/sh
-exec /path/to/zig c++ "$@"
-```
+Windows wrappers:
+- `bin/zig-cc.cmd`
+- `bin/zig-cxx.cmd`
 
-zig-cc:
-```bash
-#!/bin/sh
-exec /path/to/zig cc "$@"
-```
+Cygwin wrappers:
+- `build_tools/zig-cc-cygwin.sh`
+- `build_tools/zig-cxx-cygwin.sh`
+
+Optional env for wrappers:
+- `BEEF_ZIG_EXE` to override zig path
+- `BEEF_ZIG_TARGET` to override `--target` (defaults to x86_64-linux-musl)
 
 Build runtime libs with CMake using the wrappers and target flags for your
 platform (example: x86_64-linux-musl). Then build the project:
 ```bash
-export BEEF_CXX=/path/to/zig-cxx
-export BEEF_CC=/path/to/zig-cc
+export BEEF_CXX=/path/to/Beef/bin/zig-cxx.cmd
+export BEEF_CC=/path/to/Beef/bin/zig-cc.cmd
 /path/to/BeefBuild -platform=x86_64-unknown-linux-musl -config=Release
 ```
 
@@ -76,10 +72,18 @@ cmake -G Ninja -S /home/Beef-master -B /home/Beef-master/build_uclibc_arm32 \
 cmake --build /home/Beef-master/build_uclibc_arm32 -- -j1
 ```
 
-### Point IDE/dist at uClibc libs
+### Point BeefBuild at uClibc libs
+Preferred: place libs under `IDE/dist/rt/<TargetTriple>` (this is auto-detected),
+or set `BEEF_RT_DIR` to a custom folder. The old `IDE/dist` root still works
+as a fallback.
+
+Example (uClibc armv7):
 ```bash
-ln -sf /home/Beef-master/build_uclibc_arm32/Release/bin/libBeefRT.a /home/Beef-master/IDE/dist/libBeefRT.a
-ln -sf /home/Beef-master/build_uclibc_arm32/Release/bin/libBeefySysLib.a /home/Beef-master/IDE/dist/libBeefySysLib.a
+mkdir -p /home/Beef-master/IDE/dist/rt/armv7-unknown-linux-uclibcgnueabihf
+ln -sf /home/Beef-master/build_uclibc_arm32/Release/bin/libBeefRT.a \
+  /home/Beef-master/IDE/dist/rt/armv7-unknown-linux-uclibcgnueabihf/libBeefRT.a
+ln -sf /home/Beef-master/build_uclibc_arm32/Release/bin/libBeefySysLib.a \
+  /home/Beef-master/IDE/dist/rt/armv7-unknown-linux-uclibcgnueabihf/libBeefySysLib.a
 ```
 
 When rebuilding host BeefBuild, revert these to:
@@ -92,7 +96,7 @@ ln -sf /home/Beef-master/jbuild/Release/bin/libBeefySysLib.a /home/Beef-master/I
 Workspace file (example /home/beefdemo/BeefSpace.toml):
 ```toml
 [Configs.Release.armv7-unknown-linux-uclibcgnueabihf]
-TargetTriple = "armv7-unknown-linux-gnueabihf"
+TargetTriple = "armv7-unknown-linux-uclibcgnueabihf"
 TargetCPU = "cortex-a7"
 ```
 
@@ -160,7 +164,7 @@ install missing libs (libgcc_s, libstdc++, etc).
   - Ensure the command is on one line so -config=Release is not dropped.
   - Clean the build dir and rebuild.
 - "uses VFP register arguments ... does not"
-  - Hard/soft float mismatch. Set TargetTriple to armv7-unknown-linux-gnueabihf
+  - Hard/soft float mismatch. Set TargetTriple to armv7-unknown-linux-uclibcgnueabihf
     and TargetCPU to cortex-a7, then clean rebuild.
 - "undefined reference to _Unwind_GetIP"
   - uClibc toolchain lacks unwind for static libgcc. Use CLibType=Dynamic and
@@ -170,11 +174,12 @@ install missing libs (libgcc_s, libstdc++, etc).
 - "RTLD_DI_LINKMAP/dlinfo not declared"
   - Disable BFP_HAS_DLINFO on uClibc; only enable on glibc.
 - "zig: unknown command: @/tmp/xxx"
-  - Zig needs a subcommand. Use zig-cc/zig-cxx wrapper scripts and set
+  - Zig needs a subcommand. Use the repo wrappers (bin/zig-cc.cmd,
+    bin/zig-cxx.cmd or build_tools/zig-*-cygwin.sh) and set
     BEEF_CC/BEEF_CXX to those wrappers.
 - "libBeefRT.a: file not found"
-  - Ensure IDE/dist has symlinks to the correct runtime libs and run BeefBuild
-    from a project directory.
+  - Ensure `IDE/dist/rt/<TargetTriple>` (or `BEEF_RT_DIR`) has the correct
+    runtime libs and run BeefBuild from a project directory.
 - "FFI pid=0" or "FFI segfault on ARM"
   - FFICIF layout was missing ARM VFP fields and ABI default was SysV.
   - Update corlib FFI layout (Function.bf) and rebuild runtime + project.
