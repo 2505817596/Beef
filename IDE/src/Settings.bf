@@ -700,7 +700,7 @@ namespace IDE
 			public float mFontSize = 12;
 			public float mLineHeightScale = 1.0f;
 			public AutoCompleteShowKind mAutoCompleteShowKind = .PanelIfVisible;
-			public bool mAutoCompleteRequireControl = true;
+			public bool mAutoCompleteRequireControl = false;
 			public bool mAutoCompleteRequireTab = false;
 			public bool mAutoCompleteOnEnter = true;
 			public bool mAutoCompleteShowDocumentation = true;

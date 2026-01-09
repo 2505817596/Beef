@@ -218,12 +218,100 @@ namespace Beefy.theme.dark
 			return defaultVal;
 		}
 
-		public float GetTextOffset()
+        public float GetTextOffset()
+        {
+            float baseLineSpacing = mFont.GetLineSpacing();
+            float lineSpacing = LineHeight;
+            return lineSpacing / 2.0f - baseLineSpacing / 2.0f;
+        }
+
+#if BF_PLATFORM_WINDOWS
+		static class ImeHelper
 		{
-			float baseLineSpacing = mFont.GetLineSpacing();
-			float lineSpacing = LineHeight;
-			return lineSpacing / 2.0f - baseLineSpacing / 2.0f;
+			public const uint32 CFS_POINT = 0x0002;
+			public const uint32 CFS_FORCE_POSITION = 0x0020;
+			public const uint32 CFS_CANDIDATEPOS = 0x0040;
+
+			[CRepr]
+			public struct CompositionForm
+			{
+				public uint32 dwStyle;
+				public System.Windows.Point ptCurrentPos;
+				public System.Windows.Rect rcArea;
+			}
+
+			[CRepr]
+			public struct CandidateForm
+			{
+				public uint32 dwIndex;
+				public uint32 dwStyle;
+				public System.Windows.Point ptCurrentPos;
+				public System.Windows.Rect rcArea;
+			}
+
+			[Import("imm32.lib"), CLink, CallingConvention(.Stdcall)]
+			static extern System.Windows.Handle ImmGetContext(System.Windows.HWnd hWnd);
+
+			[Import("imm32.lib"), CLink, CallingConvention(.Stdcall)]
+			static extern System.Windows.IntBool ImmReleaseContext(System.Windows.HWnd hWnd, System.Windows.Handle hIMC);
+
+			[Import("imm32.lib"), CLink, CallingConvention(.Stdcall)]
+			static extern System.Windows.IntBool ImmSetCompositionWindow(System.Windows.Handle hIMC, CompositionForm* compForm);
+
+			[Import("imm32.lib"), CLink, CallingConvention(.Stdcall)]
+			static extern System.Windows.IntBool ImmSetCandidateWindow(System.Windows.Handle hIMC, CandidateForm* candForm);
+
+			public static void SetCompositionPos(System.Windows.HWnd hWnd, int32 x, int32 y, int32 lineHeight)
+			{
+				System.Windows.Handle imc = ImmGetContext(hWnd);
+				if (imc == default)
+					return;
+
+				CompositionForm compForm = .();
+				compForm.dwStyle = CFS_POINT | CFS_FORCE_POSITION;
+				compForm.ptCurrentPos = .(x, y);
+				compForm.rcArea = .(x, y, x + 1, y + lineHeight);
+				ImmSetCompositionWindow(imc, &compForm);
+
+				CandidateForm candForm = .();
+				candForm.dwStyle = CFS_CANDIDATEPOS;
+				candForm.ptCurrentPos = .(x, y + lineHeight);
+				candForm.rcArea = compForm.rcArea;
+				ImmSetCandidateWindow(imc, &candForm);
+
+				ImmReleaseContext(hWnd, imc);
+			}
 		}
+
+		void UpdateImePosition()
+		{
+			if ((mEditWidget == null) || (mEditWidget.mWidgetWindow == null))
+				return;
+			if ((!mEditWidget.mHasFocus) || (!mEditWidget.mWidgetWindow.mHasFocus))
+				return;
+
+			float cursorX;
+			float cursorY;
+			GetTextCoordAtCursor(out cursorX, out cursorY);
+
+			float textOffset = GetTextOffset();
+			float lineHeight = LineHeight;
+
+			float rootX;
+			float rootY;
+			SelfToRootTranslate(cursorX, cursorY + textOffset, out rootX, out rootY);
+
+			var window = mEditWidget.mWidgetWindow;
+			var top = window.mScaleMatrix.Multiply(Point(rootX, rootY));
+			var bottom = window.mScaleMatrix.Multiply(Point(rootX, rootY + lineHeight));
+
+			int32 clientX = (int32)Math.Round(top.x);
+			int32 clientY = (int32)Math.Round(top.y);
+			int32 clientLineHeight = (int32)Math.Max(1.0f, Math.Round(bottom.y - top.y));
+
+			ImeHelper.SetCompositionPos(window.HWND, clientX, clientY, clientLineHeight);
+		}
+#endif
 
 		public int FindUncollapsedLine(int line)
 		{
@@ -969,9 +1057,13 @@ namespace Beefy.theme.dark
 					if (lineAndColumn.mLine < mLineRange.Value.Start)
 						CursorLineAndColumn = .(mLineRange.Value.Start, lineAndColumn.mColumn);
 					else if (lineAndColumn.mLine >= mLineRange.Value.End)
-						CursorLineAndColumn = .(mLineRange.Value.End - 1, lineAndColumn.mColumn);
+					CursorLineAndColumn = .(mLineRange.Value.End - 1, lineAndColumn.mColumn);
 				}
 			}
+
+#if BF_PLATFORM_WINDOWS
+			UpdateImePosition();
+#endif
 		}
 
         public override bool GetLineCharAtCoord(float x, float y, out int line, out int lineChar, out float overflowX)
