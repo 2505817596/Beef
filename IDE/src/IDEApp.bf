@@ -10974,6 +10974,8 @@ namespace IDE
 											newString.Append("_wasm");
 											if (project.mWasmOptions.mEnableThreads)
 												newString.Append("_pthread");
+											if (workspaceOptions.mEmitDebugInfo != .No)
+												newString.Append("_d");
 											newString.Append(".a\"");
 										default:
 										}

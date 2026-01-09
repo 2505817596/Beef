@@ -1117,6 +1117,10 @@ BFP_EXPORT void BFP_CALLTYPE BfpProcess_Release(BfpProcess* process)
 BFP_EXPORT bool BFP_CALLTYPE BfpProcess_WaitFor(BfpProcess* process, int waitMS, int* outExitCode, BfpProcessResult* outResult)
 {
 #ifdef BF_PLATFORM_LINUX
+#if defined(__EMSCRIPTEN__)
+	OUTRESULT(BfpProcessResult_UnknownError);
+	return false;
+#else
 	const int processFd = syscall(SYS_pidfd_open, process->mProcessId, 0);
 	if (processFd < 0)
 	{
@@ -1148,6 +1152,7 @@ BFP_EXPORT bool BFP_CALLTYPE BfpProcess_WaitFor(BfpProcess* process, int waitMS,
 
 	OUTRESULT(BfpProcessResult_Ok);
 	return false;
+#endif
 
 #else
 	NOT_IMPL;
@@ -1607,6 +1612,10 @@ bool BfpSpawn_WaitFor(BfpSpawn* spawn, int waitMS, int* outExitCode, BfpSpawnRes
 	}
 
 #ifdef BF_PLATFORM_LINUX
+#if defined(__EMSCRIPTEN__)
+	OUTRESULT(BfpSpawnResult_UnknownError);
+	return false;
+#else
 	const int childFd = (int)syscall(SYS_pidfd_open, spawn->mPid, 0);
 	if (childFd == -1)
 	{
@@ -1649,6 +1658,7 @@ bool BfpSpawn_WaitFor(BfpSpawn* spawn, int waitMS, int* outExitCode, BfpSpawnRes
 		*outExitCode = WEXITSTATUS(spawn->mStatus);
 
 	return true;
+#endif
 #else
 	NOT_IMPL;
 #endif

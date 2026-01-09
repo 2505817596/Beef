@@ -782,7 +782,15 @@ namespace IDE
 
 					if (!gApp.mSettings.mEmscriptenPendingInstall)
 					{
-						if (!File.Exists(scope $"{gApp.mInstallDir}/Beef{IDEApp.sRTVersionStr}RT32_wasm.a"))
+						String rtLibName = scope String();
+						rtLibName.Append("Beef", IDEApp.sRTVersionStr, "RT32_wasm");
+						if (project.mWasmOptions.mEnableThreads)
+							rtLibName.Append("_pthread");
+						if (workspaceOptions.mEmitDebugInfo != .No)
+							rtLibName.Append("_d");
+						rtLibName.Append(".a");
+
+						if (!File.Exists(scope $"{gApp.mInstallDir}/{rtLibName}"))
 						{
 							gApp.OutputErrorLine("Wasm runtime libraries not found. Build with 'wasm/build_wasm.bat'.");
 							return false;
