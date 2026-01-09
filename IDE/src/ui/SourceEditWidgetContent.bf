@@ -810,12 +810,23 @@ namespace IDE.ui
 				0xFFFFFF80, // BuildWarning
 				0xFF80FF80, // BuildSuccess
 
-				0xFF9090C0, // VisibleWhiteSpace
+                0xFF9090C0, // VisibleWhiteSpace
             ) ~ delete _;
+		public static uint32[] sRainbowParenColors = new uint32[]
+			(
+				0xFF569CD6,
+				0xFF4EC9B0,
+				0xFFDCDCAA,
+				0xFFB5CEA8,
+				0xFFC586C0,
+				0xFFCE9178
+			) ~ delete _;
 		bool mHasCustomColors;
 		FastCursorState mFastCursorState ~ delete _;
 		public HashSet<int32> mCurParenPairIdSet = new .() ~ delete _;
 		HilitePairedCharState mHilitePairedCharState = .NeedToRecalculate;
+		List<int32> mRainbowParenLineDepths = new List<int32>() ~ delete _;
+		int32 mRainbowParenTextVersionId = -1;
 		public Dictionary<int32, CollapseEntry> mCollapseMap = new .() ~ delete _;
 		public List<CollapseEntry*> mOrderedCollapseEntries = new .() ~ delete _;
 		public List<String> mCollapseTypeNames = new .() ~ DeleteContainerAndItems!(_);
@@ -4309,14 +4320,14 @@ namespace IDE.ui
 
 						if (!ignore)
 						{
-	                        if ((mData.mText[checkPos].mDisplayTypeId == (int32)wantElementType) &&
-	                            ((keyChar == '"') || (keyChar == '\'') || (keyChar == ')') || (keyChar == ']') || (keyChar == '>') || (keyChar == '}')) &&
-								(IsCurrentPairClosing(cursorTextPos, true)))
-	                        {
-	                            CurJustInsertedCharPair = false;
-	                            CursorTextPos++;
-	                            return;
-	                        }
+                        if ((mData.mText[checkPos].mDisplayTypeId == (int32)wantElementType) &&
+                            ((keyChar == '"') || (keyChar == '\'') || (keyChar == ')') || (keyChar == ']') || (keyChar == '>') || (keyChar == '}')) &&
+							(IsCurrentPairClosing(cursorTextPos, true)))
+                        {
+                            CurJustInsertedCharPair = false;
+                            CursorTextPos++;
+                            return;
+                        }
 							else
 							{
 								if ((!cursorInLiteral) && ((keyChar == '"') || (keyChar == '\'')))
@@ -6411,6 +6422,154 @@ namespace IDE.ui
 			mLineCoordTextVersionId = mData.mCurTextVersionId;
 		}
 
+		void EnsureRainbowParenDepths()
+		{
+			GetTextData();
+
+			int lineCount = GetLineCount();
+			if ((mRainbowParenTextVersionId == mData.mCurTextVersionId) &&
+				(mRainbowParenLineDepths.Count == lineCount + 1))
+				return;
+
+			mRainbowParenLineDepths.Resize(lineCount + 1);
+
+			int32 depth = 0;
+			for (int lineIdx = 0; lineIdx < lineCount; lineIdx++)
+			{
+				mRainbowParenLineDepths[lineIdx] = depth;
+
+				int lineStart;
+				int lineEnd;
+				GetLinePosition(lineIdx, out lineStart, out lineEnd);
+				for (int i = lineStart; i < lineEnd; i++)
+				{
+					var typeId = (SourceElementType)mData.mText[i].mDisplayTypeId;
+					if ((typeId == .Comment) || (typeId == .Literal))
+						continue;
+
+					char8 c = mData.mText[i].mChar;
+					switch (c)
+					{
+					case '(', '[', '{':
+						depth++;
+					case ')', ']', '}':
+						if (depth > 0)
+							depth--;
+					}
+				}
+			}
+
+			mRainbowParenLineDepths[lineCount] = depth;
+			mRainbowParenTextVersionId = mData.mCurTextVersionId;
+		}
+
+		void DrawRainbowParens(Graphics g)
+		{
+			if (sRainbowParenColors.Count == 0)
+				return;
+
+			EnsureRainbowParenDepths();
+
+			int firstLine;
+			int firstCharIdx;
+			float overflowX;
+			GetLineCharAtCoord(0, -mY, out firstLine, out firstCharIdx, out overflowX);
+
+			int lastLine;
+			int lastCharIdx;
+			float lastOverflowX;
+			GetLineCharAtCoord(0, -mY + mEditWidget.mScrollContentContainer.mHeight, out lastLine, out lastCharIdx, out lastOverflowX);
+
+			if (mLineRange != null)
+			{
+				firstLine = Math.Max(firstLine, mLineRange.Value.Start);
+				lastLine = Math.Min(lastLine, mLineRange.Value.End - 1);
+			}
+
+			g.SetFont(mFont);
+			float textOffset = GetTextOffset();
+			String oneChar = scope String(1);
+			String lineText = scope String(256);
+
+			for (int lineIdx = firstLine; lineIdx <= lastLine; lineIdx++)
+			{
+				float curY = mLineCoords[lineIdx];
+				float height = mLineCoords[lineIdx + 1] - curY;
+				if (height <= 1.0f)
+					continue;
+
+				int lineStart;
+				int lineEnd;
+				GetLinePosition(lineIdx, out lineStart, out lineEnd);
+
+				lineText.Clear();
+				ExtractString(lineStart, lineEnd - lineStart, lineText);
+
+				int32 depth = 0;
+				if (lineIdx < mRainbowParenLineDepths.Count)
+					depth = mRainbowParenLineDepths[lineIdx];
+
+				float curX = 0;
+				var utf8 = lineText.DecodedChars;
+				int32 prevIndex = 0;
+				while (utf8.MoveNext())
+				{
+					int32 charStart = prevIndex;
+					int32 charEnd = (int32)utf8.NextIndex;
+					prevIndex = charEnd;
+
+					char32 c32 = utf8.Current;
+					char8 c = (char8)c32;
+					int textIndex = lineStart + charStart;
+					if ((textIndex < 0) || (textIndex >= mData.mTextLength))
+						break;
+
+					var typeId = (SourceElementType)mData.mText[textIndex].mDisplayTypeId;
+
+					if ((typeId != .Comment) && (typeId != .Literal))
+					{
+						bool isOpen = (c32 == '(') || (c32 == '[') || (c32 == '{');
+						bool isClose = (c32 == ')') || (c32 == ']') || (c32 == '}');
+						int colorDepth = 0;
+
+						if (isOpen)
+						{
+							depth++;
+							colorDepth = depth;
+						}
+						else if (isClose)
+						{
+							colorDepth = depth;
+							if (depth > 0)
+								depth--;
+						}
+
+						if (colorDepth > 0)
+						{
+							uint32 color = sRainbowParenColors[(colorDepth - 1) % sRainbowParenColors.Count];
+							oneChar.Clear();
+							oneChar.Append(c);
+							using (g.PushColor(color))
+								DoDrawText(g, oneChar, curX, curY + textOffset);
+						}
+					}
+
+					if (c32 == '\t')
+					{
+						curX = GetTabbedPos(curX);
+					}
+					else if ((mCharWidth != -1) && (c32 < (char32)0x80))
+					{
+						curX += mCharWidth;
+					}
+					else
+					{
+						curX += mFont.GetWidth(c32);
+					}
+				}
+			}
+		}
+
         public override void Draw(Graphics g)
         {
             base.Draw(g);
@@ -6555,6 +6714,8 @@ namespace IDE.ui
 					queuedTextEntry.Dispose();
                 }
                 mQueuedText.Clear();
+
+				DrawRainbowParens(g);
             }
 
 			if (mFastCursorState != null)

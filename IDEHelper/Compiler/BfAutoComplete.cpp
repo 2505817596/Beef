@@ -1504,6 +1504,43 @@ void BfAutoComplete::AddTopLevelTypes(BfAstNode* identifierNode, bool onlyAttrib
 		mInsertEndIdx = identifierNode->GetSrcEnd();
 	}
 
+	auto addExternalTypeDef = [&](BfTypeDef* typeDef)
+	{
+		if (filter.IsEmpty())
+			return;
+
+		if ((typeDef == NULL) || (typeDef->mTypeDeclaration == NULL))
+			return;
+
+		if (typeDef->mTypeCode == BfTypeCode_Extension)
+			return;
+
+		StringT<64> name(typeDef->mName->ToString());
+		if (name == "@")
+			return;
+
+		int gravePos = (int)name.IndexOf('`');
+		if (gravePos != -1)
+			name = name.Substring(0, gravePos) + "<>";
+
+		int score;
+		uint8 matches[256];
+		if (!DoesFilterMatch(name.c_str(), filter.c_str(), score, matches, sizeof(matches)))
+			return;
+
+		StringT<128> display;
+		display += name;
+		display += " (";
+		display += typeDef->mNamespace.ToString();
+		display += ")";
+		display += "\t";
+		display += name;
+
+		const char* entryType = (typeDef->mTypeCode == BfTypeCode_Object) ? "class" :
+			(typeDef->mTypeCode == BfTypeCode_Interface) ? "interface" : "valuetype";
+		AddEntry(AutoCompleteEntry(entryType, display), filter);
+	};
+
 	AddEntry(AutoCompleteEntry("token", "function"), filter);
 	AddEntry(AutoCompleteEntry("token", "delegate"), filter);
 	AddEntry(AutoCompleteEntry("token", "decltype"), filter);
@@ -1592,6 +1629,10 @@ void BfAutoComplete::AddTopLevelTypes(BfAstNode* identifierNode, bool onlyAttrib
 				{
 					AddTypeDef(typeDef, filter, onlyAttribute);
 				}
+				else if (!onlyAttribute)
+				{
+					addExternalTypeDef(typeDef);
+				}
 			}
 		}
 	}
@@ -1619,6 +1660,10 @@ void BfAutoComplete::AddTopLevelTypes(BfAstNode* identifierNode, bool onlyAttrib
 				if (matches)
 				{
 					AddTypeDef(typeDef, filter, onlyAttribute);
+				}
+				else if (!onlyAttribute)
+				{
+					addExternalTypeDef(typeDef);
 				}
 			}
 		}
@@ -1873,6 +1918,8 @@ void BfAutoComplete::CheckIdentifier(BfAstNode* identifierNode, bool isInExpress
 
 		for (int i = 0; i < sizeof(tokens) / sizeof(char*); i++)
 			AddEntry(AutoCompleteEntry("token", tokens[i]), filter);
+
+		AddEntry(AutoCompleteEntry("token", "cw\tConsole.WriteLine()"), filter);
 
 		if ((mModule->mCurMethodState != NULL) && (mModule->mCurMethodState->mBreakData != NULL) && (mModule->mCurMethodState->mBreakData->mIRFallthroughBlock))
 		{

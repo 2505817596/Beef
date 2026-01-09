@@ -10,6 +10,7 @@ using Beefy.widgets;
 using Beefy.theme.dark;
 using Beefy.geom;
 using Beefy.utils;
+using IDE.Compiler;
 
 namespace IDE.ui
 {
@@ -2545,7 +2546,7 @@ namespace IDE.ui
                     entryIcon = DarkTheme.sDarkTheme.GetImage(.IconPointer);
                 case "value":
                     entryIcon = DarkTheme.sDarkTheme.GetImage(.IconValue);
-				case "payloadEnum":
+                case "payloadEnum":
 					entryIcon = DarkTheme.sDarkTheme.GetImage(.IconPayloadEnum);
                 case "generic": //TODO: make icon
                     entryIcon = DarkTheme.sDarkTheme.GetImage(.IconValue);
@@ -2635,7 +2636,7 @@ namespace IDE.ui
                     }                        
                 }
 
-				if (isInvoke)
+                if (isInvoke)
 				{
 					if (queueClearInvoke)
 					{
@@ -2839,6 +2840,224 @@ namespace IDE.ui
 
             return mInsertStartIdx.Value == mInsertEndIdx;
         }
+
+		bool TryApplyUsingFixit(SourceEditWidgetContent sewc, AutoCompleteListWidget.EntryWidget entry)
+		{
+			if ((sewc == null) || (mIsMember) || (mIsFixit) || (mInvokeOnly))
+				return false;
+
+			var sourceViewPanel = sewc.mSourceViewPanel;
+			if ((sourceViewPanel == null) || (!sourceViewPanel.mIsBeefSource) || (sourceViewPanel.FilteredProjectSource == null))
+				return false;
+
+			if ((gApp.mSymbolReferenceHelper?.IsLocked == true) || (sewc.mTextCursors.Count != 1))
+				return false;
+
+			switch (entry.mEntryType)
+			{
+			case "class":
+			case "interface":
+			case "valuetype":
+				break;
+			default:
+				return false;
+			}
+
+			ResolveParams resolveParams = scope .();
+			resolveParams.mOverrideCursorPos = (.)sewc.CursorTextPos;
+			resolveParams.mIsUserRequested = true;
+			sourceViewPanel.DoClassify(ResolveType.GetFixits, resolveParams, true);
+
+			if ((resolveParams.mCancelled) || (resolveParams.mNavigationData == null) || (resolveParams.mNavigationData.IsEmpty))
+				return false;
+
+			String wantNamespace = scope .();
+			bool hasWantNamespace = TryGetEntryNamespace(entry, wantNamespace);
+
+			int usingFixitCount = 0;
+			String usingFixit = null;
+			for (var entryView in resolveParams.mNavigationData.Split('\n'))
+			{
+				if (entryView.IsEmpty)
+					continue;
+
+				int tabPos = entryView.IndexOf('\t');
+				if (tabPos == -1)
+					continue;
+
+				StringView entryType = StringView(entryView, 0, tabPos);
+				if (entryType != "fixit")
+					continue;
+
+				StringView entryDisplay = StringView(entryView, tabPos + 1);
+				int insertTabPos = entryDisplay.IndexOf('\t');
+				if (insertTabPos == -1)
+					continue;
+
+				StringView entryInsert = StringView(entryDisplay, insertTabPos + 1);
+				if (!entryInsert.StartsWith(".using|"))
+					continue;
+
+				usingFixitCount++;
+
+				String fixitNamespace = scope .();
+				bool hasFixitNamespace = TryGetUsingNamespace(entryInsert, fixitNamespace);
+				if (!hasWantNamespace)
+				{
+					if (usingFixitCount == 1)
+						usingFixit = new String(entryInsert);
+					else if (usingFixitCount > 1)
+						usingFixitCount = 2;
+				}
+				else if ((hasFixitNamespace) && (fixitNamespace == wantNamespace))
+				{
+					delete usingFixit;
+					usingFixit = new String(entryInsert);
+					break;
+				}
+			}
+
+			bool hasExistingUsing = false;
+			String usingNamespace = scope .();
+			if ((usingFixit != null) && (TryGetUsingNamespace(usingFixit, usingNamespace)))
+				hasExistingUsing = HasUsingDirective(sewc, usingNamespace);
+
+			bool hasSelectedUsing = (!wantNamespace.IsEmpty) && (usingFixit != null);
+			if (hasSelectedUsing || ((usingFixitCount == 1) && (usingFixit != null)))
+			{
+				if (!hasExistingUsing)
+					ApplyFixit(usingFixit);
+				delete usingFixit;
+				return true;
+			}
+
+			if (usingFixit != null)
+				delete usingFixit;
+
+			return false;
+		}
+
+		bool TryGetUsingNamespace(StringView fixitData, String outNamespace)
+		{
+			if (fixitData.IsEmpty)
+				return false;
+
+			StringView insertStr = default;
+			for (var part in fixitData.Split('|'))
+			{
+				insertStr = part;
+			}
+
+			insertStr.Trim();
+			if (insertStr.IsEmpty)
+				return false;
+
+			if (insertStr.StartsWith("using static "))
+				insertStr = insertStr.Substring("using static ".Length);
+			else if (insertStr.StartsWith("using "))
+				insertStr = insertStr.Substring("using ".Length);
+			else
+				return false;
+
+			insertStr.Trim();
+			int semiPos = insertStr.IndexOf(';');
+			if (semiPos != -1)
+				insertStr.RemoveToEnd(semiPos);
+
+			insertStr.Trim();
+			if (insertStr.IsEmpty)
+				return false;
+
+			int eqPos = insertStr.IndexOf('=');
+			if (eqPos != -1)
+			{
+				insertStr = insertStr.Substring(eqPos + 1);
+				insertStr.Trim();
+			}
+
+			if (insertStr.IsEmpty)
+				return false;
+
+			outNamespace.Append(insertStr);
+			return true;
+		}
+
+		bool TryGetEntryNamespace(AutoCompleteListWidget.EntryWidget entry, String outNamespace)
+		{
+			if ((entry == null) || (entry.mEntryDisplay == null))
+				return false;
+
+			StringView display = entry.mEntryDisplay;
+			if (!display.EndsWith(")"))
+				return false;
+
+			int openIdx = display.LastIndexOf('(');
+			if (openIdx == -1)
+				return false;
+			if ((openIdx == 0) || (display[openIdx - 1] != ' '))
+				return false;
+
+			int nsStart = openIdx + 1;
+			int nsLen = display.Length - openIdx - 2;
+			if (nsLen <= 0)
+				return false;
+
+			StringView nsView = display.Substring(nsStart, nsLen);
+			nsView.Trim();
+			if (nsView.IsEmpty)
+				return false;
+
+			outNamespace.Append(nsView);
+			return true;
+		}
+
+		bool HasUsingDirective(SourceEditWidgetContent sewc, StringView namespaceName)
+		{
+			if (namespaceName.IsEmpty)
+				return false;
+
+			int lineCount = sewc.GetLineCount();
+			for (int line < lineCount)
+			{
+				String lineText = scope .();
+				sewc.GetLineText(line, lineText);
+				lineText.Trim();
+
+				if (lineText.IsEmpty)
+					continue;
+				if (lineText.StartsWith("//"))
+					continue;
+
+				StringView check = lineText;
+				if (check.StartsWith("using static "))
+					check = check.Substring("using static ".Length);
+				else if (check.StartsWith("using "))
+					check = check.Substring("using ".Length);
+				else
+					continue;
+
+				check.Trim();
+				int semiPos = check.IndexOf(';');
+				if (semiPos != -1)
+					check.RemoveToEnd(semiPos);
+
+				check.Trim();
+				if (check.IsEmpty)
+					continue;
+
+				int eqPos = check.IndexOf('=');
+				if (eqPos != -1)
+				{
+					check = check.Substring(eqPos + 1);
+					check.Trim();
+				}
+
+				if (check == namespaceName)
+					return true;
+			}
+
+			return false;
+		}
 
 		void ApplyFixit(String data)
 		{
@@ -3158,6 +3377,10 @@ namespace IDE.ui
 			}
 
 			var insertText = scope String(entry.mEntryInsert ?? entry.mEntryDisplay);
+			bool moveCursorInsideParens =
+				(entry.mEntryType == "token") &&
+				(entry.mEntryDisplay == "cw") &&
+				(insertText.EndsWith("()"));
 			if ((!isExplicitInsert) && (insertText.Contains('\t')))
 			{
 				// Don't insert multi-line blocks unless we have an explicit insert request (click, tab, or enter)
@@ -3230,6 +3453,9 @@ namespace IDE.ui
 				else
 					sewc.InsertAtCursor(insertText, .NoRestoreSelectionOnUndo);
 
+				if (moveCursorInsideParens && (sewc.CursorTextPos > 0))
+					sewc.CursorTextPos--;
+
 				if (implText != null)
 					InsertImplText(sewc, implText);
 			}
@@ -3245,6 +3471,8 @@ namespace IDE.ui
 					delete persistentTextPositon;
 				}
 			}
+
+			TryApplyUsingFixit(sewc, entry);
 
 			sewc.SetPrimaryTextCursor();
 			sewc.EnsureCursorVisible();
