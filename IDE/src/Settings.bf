@@ -801,6 +801,7 @@ namespace IDE
 
 			public void SetDefaults()
 			{
+				mFonts.Add(new String("fonts/SarasaMonoSC-Regular.ttf"));
 				mFonts.Add(new String("fonts/SourceCodePro-Regular.ttf"));
 				mFonts.Add(new String("Segoe UI"));
 				mFonts.Add(new String("?Segoe UI Symbol"));

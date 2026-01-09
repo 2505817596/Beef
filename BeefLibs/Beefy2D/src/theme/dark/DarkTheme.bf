@@ -409,12 +409,18 @@ namespace Beefy.theme.dark
 			mHeaderFont.AddAlternate("Segoe UI Symbol", 11.7f * sScale).IgnoreError();
 			mHeaderFont.AddAlternate("Segoe UI Historic", 11.7f * sScale).IgnoreError();
 			mHeaderFont.AddAlternate("Segoe UI Emoji", 11.7f * sScale).IgnoreError();
+			mHeaderFont.AddAlternate("Microsoft YaHei UI", 11.7f * sScale).IgnoreError();
+			mHeaderFont.AddAlternate("Microsoft YaHei", 11.7f * sScale).IgnoreError();
+			mHeaderFont.AddAlternate("SimSun", 11.7f * sScale).IgnoreError();
 
 			mSmallFont.Dispose(true);
 			mSmallFont.Load("Segoe UI", 12.8f * sScale); // 10.0
 			mSmallFont.AddAlternate("Segoe UI Symbol", 12.8f * sScale).IgnoreError();
 			mSmallFont.AddAlternate("Segoe UI Historic", 12.8f * sScale).IgnoreError();
 			mSmallFont.AddAlternate("Segoe UI Emoji", 12.8f * sScale).IgnoreError();
+			mSmallFont.AddAlternate("Microsoft YaHei UI", 12.8f * sScale).IgnoreError();
+			mSmallFont.AddAlternate("Microsoft YaHei", 12.8f * sScale).IgnoreError();
+			mSmallFont.AddAlternate("SimSun", 12.8f * sScale).IgnoreError();
 
 			mSmallBoldFont.Dispose(true);
 			mSmallBoldFont.Dispose(true);
@@ -422,6 +428,9 @@ namespace Beefy.theme.dark
 			mSmallBoldFont.AddAlternate("Segoe UI Symbol", 12.8f * sScale).IgnoreError();
 			mSmallBoldFont.AddAlternate("Segoe UI Historic", 12.8f * sScale).IgnoreError();
 			mSmallBoldFont.AddAlternate("Segoe UI Emoji", 12.8f * sScale).IgnoreError();
+			mSmallBoldFont.AddAlternate("Microsoft YaHei UI", 12.8f * sScale).IgnoreError();
+			mSmallBoldFont.AddAlternate("Microsoft YaHei", 12.8f * sScale).IgnoreError();
+			mSmallBoldFont.AddAlternate("SimSun", 12.8f * sScale).IgnoreError();
 			/*mSmallBoldFont.Load(StringAppend!(tempStr, BFApp.sApp.mInstallDir, "fonts/segoeuib.ttf"), 12.8f * sScale); // 10.0
 			mSmallBoldFont.AddAlternate(scope String(BFApp.sApp.mInstallDir, "fonts/segoeui.ttf"), 12.8f * sScale);
 			mSmallBoldFont.AddAlternate(scope String(BFApp.sApp.mInstallDir, "fonts/seguisym.ttf"), 12.8f * sScale);
