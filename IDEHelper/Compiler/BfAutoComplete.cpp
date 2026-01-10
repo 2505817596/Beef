@@ -1542,6 +1542,7 @@ void BfAutoComplete::AddTopLevelTypes(BfAstNode* identifierNode, bool onlyAttrib
 	};
 
 	AddEntry(AutoCompleteEntry("token", "function"), filter);
+	AddEntry(AutoCompleteEntry("token", "func"), filter);
 	AddEntry(AutoCompleteEntry("token", "delegate"), filter);
 	AddEntry(AutoCompleteEntry("token", "decltype"), filter);
 
@@ -1909,10 +1910,10 @@ void BfAutoComplete::CheckIdentifier(BfAstNode* identifierNode, bool isInExpress
 		{
 			"alignof", "append", "as", "asm", "base", "break", "case", "catch", "checked", "continue", "const", "default", "defer",
 			"delegate", "delete", "do", "else", "false", "finally",
-			"fixed", "for", "function", "global", "if", "implicit", "in", "internal", "is", "isconst", "new", "mixin", "not", "null",
+			"fixed", "for", "function", "func", "global", "if", "implicit", "in", "internal", "is", "isconst", "new", "mixin", "not", "null",
 			"offsetof", "out", "params", "readonly", "ref", "rettype", "return",
 			"sealed", "sizeof", "scope", "static", "strideof", "struct", "switch", /*"this",*/ "try", "true", "typeof", "unchecked",
-			"using", "var", "virtual", "volatile", "where", "while",
+			"using", "import", "var", "virtual", "volatile", "where", "while",
 			"alloctype", "comptype", "decltype", "nullable",
 		};
 
@@ -1931,11 +1932,11 @@ void BfAutoComplete::CheckIdentifier(BfAstNode* identifierNode, bool isInExpress
 		const char* tokens[] =
 		{
 			"abstract", "append", "base", "class", "concrete", "const",
-			"delegate", "extern", "enum", "explicit", "extension", "function", "global",
+			"delegate", "extern", "enum", "explicit", "extension", "function", "func", "global",
 			"interface", "in", "implicit", "internal", "mixin", "namespace", "new",
 			"operator", "out", "override", "params", "private", "protected", "public", "readonly", "ref", "rettype", "return",
 			"scope", "sealed", "static", "struct", "this", "typealias",
-			"using", "virtual", "volatile", "T", "where"
+			"using", "import", "virtual", "volatile", "T", "where"
 		};
 		for (int i = 0; i < sizeof(tokens)/sizeof(char*); i++)
 			AddEntry(AutoCompleteEntry("token", tokens[i]), filter);

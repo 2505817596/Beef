@@ -237,6 +237,7 @@ public:
 	bool HandlePreprocessor();
 	bool IsUnwarnedAt(BfAstNode* node);
 	bool SrcPtrHasToken(const char* name);
+	bool SrcPtrHasTokenAndNextNonWhitespaceCharIs(const char* name, char nextChar);
 	uint32 GetTokenHash();
 	void ParseBlock(BfBlock* astNode, int depth, bool isInterpolate = false);
 	double ParseLiteralDouble();

@@ -739,6 +739,28 @@ bool BfParser::SrcPtrHasToken(const char* name)
 	return true;
 }
 
+bool BfParser::SrcPtrHasTokenAndNextNonWhitespaceCharIs(const char* name, char nextChar)
+{
+	const char* namePtr = name;
+	int checkIdx = mSrcIdx - 1;
+	while (*namePtr)
+	{
+		if (*(namePtr++) != mSrc[checkIdx])
+			return false;
+		checkIdx++;
+	}
+	if (!IsWhitespaceOrPunctuation(mSrc[checkIdx]))
+		return false;
+	int lookIdx = checkIdx;
+	while (IsWhitespace(mSrc[lookIdx]))
+		lookIdx++;
+	if (mSrc[lookIdx] != nextChar)
+		return false;
+	mSrcIdx = checkIdx;
+	mTokenEnd = checkIdx;
+	return true;
+}
+
 void BfParser::AddErrorNode(int startIdx, int endIdx)
 {
 	auto identifierNode = mAlloc->Alloc<BfIdentifierNode>();
@@ -3269,7 +3291,7 @@ void BfParser::NextToken(int endIdx, bool outerIsInterpolate, bool disablePrepro
 						}
 						break;
 					case TOKEN_HASH('f', 'u', 'n', 'c'):
-						if ((!mCompatMode) && (SrcPtrHasToken("function")))
+						if ((!mCompatMode) && ((SrcPtrHasTokenAndNextNonWhitespaceCharIs("func", ':')) || (SrcPtrHasToken("function"))))
 							mToken = BfToken_Function;
 						break;
 					case TOKEN_HASH('g', 'o', 't', 'o'):
@@ -3283,6 +3305,10 @@ void BfParser::NextToken(int endIdx, bool outerIsInterpolate, bool disablePrepro
 					case TOKEN_HASH('i', 'm', 'p', 'l'):
 						if ((!mCompatMode) && (SrcPtrHasToken("implicit")))
 							mToken = BfToken_Implicit;
+						break;
+					case TOKEN_HASH('i', 'm', 'p', 'o'):
+						if ((!mCompatMode) && (SrcPtrHasToken("import")))
+							mToken = BfToken_Using;
 						break;
 					case TOKEN_HASH('i', 'n', 0, 0):
 						if ((!mCompatMode) && (SrcPtrHasToken("in")))

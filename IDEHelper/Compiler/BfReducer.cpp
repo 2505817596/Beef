@@ -26,6 +26,119 @@ USING_NS_BF;
 	dest->member = src; \
 	MoveNode(src, dest); }
 
+static bool IsFuncMethodModifierToken(BfToken token)
+{
+	switch (token)
+	{
+	case BfToken_Public:
+	case BfToken_Protected:
+	case BfToken_Private:
+	case BfToken_Internal:
+	case BfToken_Static:
+	case BfToken_Virtual:
+	case BfToken_Override:
+	case BfToken_Abstract:
+	case BfToken_Concrete:
+	case BfToken_Extern:
+	case BfToken_New:
+	case BfToken_Mut:
+	case BfToken_ReadOnly:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void ApplyFuncMethodModifier(BfReducer* reducer, BfMethodDeclaration* methodDecl, BfTokenNode* tokenNode)
+{
+	BfToken token = tokenNode->GetToken();
+	if (token == BfToken_Static)
+	{
+		if (methodDecl->mStaticSpecifier != NULL)
+		{
+			reducer->AddErrorNode(methodDecl->mStaticSpecifier);
+			reducer->Fail("Static already specified", methodDecl->mStaticSpecifier);
+		}
+		methodDecl->mStaticSpecifier = tokenNode;
+		reducer->MoveNode(tokenNode, methodDecl);
+		return;
+	}
+
+	if ((token == BfToken_Public) ||
+		(token == BfToken_Protected) ||
+		(token == BfToken_Private) ||
+		(token == BfToken_Internal))
+	{
+		reducer->SetProtection(methodDecl, methodDecl->mProtectionSpecifier, tokenNode);
+		return;
+	}
+
+	if ((token == BfToken_Virtual) ||
+		(token == BfToken_Override) ||
+		(token == BfToken_Abstract) ||
+		(token == BfToken_Concrete))
+	{
+		if (methodDecl->mVirtualSpecifier != NULL)
+		{
+			reducer->AddErrorNode(methodDecl->mVirtualSpecifier);
+			if (methodDecl->mVirtualSpecifier->GetToken() == tokenNode->GetToken())
+				reducer->Fail(StrFormat("Already specified '%s'", BfTokenToString(tokenNode->GetToken())), methodDecl->mVirtualSpecifier);
+			else
+				reducer->Fail(StrFormat("Cannot specify both '%s' and '%s'", BfTokenToString(methodDecl->mVirtualSpecifier->GetToken()), BfTokenToString(tokenNode->GetToken())), methodDecl->mVirtualSpecifier);
+		}
+
+		methodDecl->mVirtualSpecifier = tokenNode;
+		reducer->MoveNode(tokenNode, methodDecl);
+		return;
+	}
+
+	if (token == BfToken_Extern)
+	{
+		if (methodDecl->mExternSpecifier != NULL)
+		{
+			reducer->AddErrorNode(methodDecl->mExternSpecifier);
+			reducer->Fail("Extern already specified", methodDecl->mExternSpecifier);
+		}
+		methodDecl->mExternSpecifier = tokenNode;
+		reducer->MoveNode(tokenNode, methodDecl);
+		return;
+	}
+
+	if (token == BfToken_New)
+	{
+		if (methodDecl->mNewSpecifier != NULL)
+		{
+			reducer->AddErrorNode(methodDecl->mNewSpecifier);
+			reducer->Fail("New already specified", methodDecl->mNewSpecifier);
+		}
+		methodDecl->mNewSpecifier = tokenNode;
+		reducer->MoveNode(tokenNode, methodDecl);
+		return;
+	}
+
+	if (token == BfToken_Mut)
+	{
+		if (methodDecl->mMutSpecifier != NULL)
+		{
+			reducer->AddErrorNode(methodDecl->mMutSpecifier);
+			reducer->Fail("Mut already specified", methodDecl->mMutSpecifier);
+		}
+		methodDecl->mMutSpecifier = tokenNode;
+		reducer->MoveNode(tokenNode, methodDecl);
+		return;
+	}
+
+	if (token == BfToken_ReadOnly)
+	{
+		if (methodDecl->mReadOnlySpecifier == NULL)
+		{
+			methodDecl->mReadOnlySpecifier = tokenNode;
+			reducer->MoveNode(tokenNode, methodDecl);
+		}
+		return;
+	}
+}
+
 BfReducer::BfReducer()
 {
 	mCurTypeDecl = NULL;
@@ -6607,6 +6720,73 @@ BfAstNode* BfReducer::ReadTypeMember(BfTokenNode* tokenNode, bool declStarted, i
 		return member;
 	}
 
+	if (token == BfToken_Function)
+	{
+		if (tokenNode->Equals("func"))
+		{
+			auto methodDecl = mAlloc->Alloc<BfMethodDeclaration>();
+			BfDeferredAstSizedArray<BfParameterDeclaration*> params(methodDecl->mParams, mAlloc);
+			BfDeferredAstSizedArray<BfTokenNode*> commas(methodDecl->mCommas, mAlloc);
+			ReplaceNode(tokenNode, methodDecl);
+			methodDecl->mDocumentation = FindDocumentation(mTypeMemberNodeStart);
+
+			BfAstNode* lastNode = tokenNode;
+			auto colonToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.GetNext());
+			if ((colonToken != NULL) && (colonToken->GetToken() == BfToken_Colon))
+			{
+				mVisitorPos.MoveNext();
+				lastNode = colonToken;
+				while (true)
+				{
+					auto nextNode = mVisitorPos.GetNext();
+					auto modTokenNode = BfNodeDynCast<BfTokenNode>(nextNode);
+					if ((modTokenNode == NULL) || (!IsFuncMethodModifierToken(modTokenNode->GetToken())))
+						break;
+
+					mVisitorPos.MoveNext();
+					lastNode = modTokenNode;
+					ApplyFuncMethodModifier(this, methodDecl, modTokenNode);
+
+					auto sepToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.GetNext());
+					if ((sepToken == NULL) || (sepToken->GetToken() != BfToken_Colon))
+						break;
+					mVisitorPos.MoveNext();
+					lastNode = sepToken;
+				}
+			}
+
+			auto typeRef = CreateTypeRefAfter(lastNode);
+			if (typeRef == NULL)
+				return methodDecl;
+			MEMBER_SET(methodDecl, mReturnType, typeRef);
+			CheckMultiuseAttributeTypeRef(methodDecl->mReturnType);
+
+			auto nameNode = ExpectIdentifierAfter(typeRef);
+			if (nameNode != NULL)
+			{
+				MEMBER_SET(methodDecl, mNameNode, nameNode);
+
+				auto nextNode = mVisitorPos.GetNext();
+				if ((tokenNode = BfNodeDynCast<BfTokenNode>(nextNode)))
+				{
+					if (tokenNode->GetToken() == BfToken_LChevron)
+					{
+						auto genericParams = CreateGenericParamsDeclaration(tokenNode);
+						if (genericParams != NULL)
+						{
+							MEMBER_SET(methodDecl, mGenericParams, genericParams);
+						}
+					}
+				}
+
+				SetAndRestoreValue<BfMethodDeclaration*> prevMethodDeclaration(mCurMethodDecl, methodDecl);
+				ParseMethod(methodDecl, &params, &commas);
+			}
+
+			return methodDecl;
+		}
+	}
+
 	if (token == BfToken_Operator)
 	{
 		auto operatorDecl = mAlloc->Alloc<BfOperatorDeclaration>();
@@ -7378,6 +7558,18 @@ BfAstNode* BfReducer::ReadTypeMember(BfAstNode* node, bool declStarted, int dept
 	}
 
 	BfTokenNode* refToken = NULL;
+
+	if (auto identifierNode = BfNodeDynCast<BfIdentifierNode>(node))
+	{
+		if (identifierNode->Equals("func"))
+		{
+			auto funcToken = mAlloc->Alloc<BfTokenNode>();
+			ReplaceNode(identifierNode, funcToken);
+			funcToken->SetToken(BfToken_Function);
+			mVisitorPos.ReplaceCurrent(funcToken);
+			return ReadTypeMember(funcToken, declStarted, depth, deferredHeadNode);
+		}
+	}
 
 	if (auto tokenNode = BfNodeDynCast<BfTokenNode>(node))
 	{
@@ -9660,7 +9852,7 @@ BfAstNode* BfReducer::CreateTopLevelObject(BfTokenNode* tokenNode, BfAttributeDi
 
 		nextNode = mVisitorPos.GetNext();
 		auto tokenNode = BfNodeDynCast<BfTokenNode>(nextNode);
-		if ((tokenNode != NULL) && (tokenNode->GetToken() == BfToken_Colon))
+		if ((tokenNode != NULL) && ((tokenNode->GetToken() == BfToken_Colon) || (tokenNode->GetToken() == BfToken_Arrow)))
 		{
 			MEMBER_SET(typeDeclaration, mColonToken, tokenNode);
 			mVisitorPos.MoveNext();

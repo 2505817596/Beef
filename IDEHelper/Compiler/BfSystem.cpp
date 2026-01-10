@@ -2983,7 +2983,8 @@ void BfSystem::FindFixitNamespaces(const StringImpl& typeName, int numGenericArg
 			}
 			else
 				outerName = typeDef->mNamespace.ToString();
-			fixitNamespaces.insert(outerName);
+			if (!outerName.IsEmpty())
+				fixitNamespaces.insert(outerName);
 		}
 	}
 }

@@ -7206,6 +7206,13 @@ namespace IDE.ui
 
         void InjectErrors(BfPassInstance processingPassInstance, EditWidgetContent.CharData[] processResolveCharData, IdSpan processCharIdSpan, bool keepPersistentErrors, bool filterErrors)
         {
+            if (processResolveCharData != null)
+            {
+                uint8 clearMask = (uint8)SourceElementFlags.CompilerFlags_Mask;
+                for (int i < processResolveCharData.Count)
+                    processResolveCharData[i].mDisplayFlags &= (uint8)~clearMask;
+            }
+
             if (keepPersistentErrors)
             {                
                 for (int errorIdx = mErrorList.Count - 1; errorIdx >= 0; errorIdx--)
