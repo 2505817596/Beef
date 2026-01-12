@@ -676,48 +676,89 @@ String Beefy::vformat(const char* fmt, va_list argPtr)
 	// We draw the line at a 1MB string.
 	const int maxSize = 1000000;
 
-	const char* useFmt = fmt;
-	String fmtStr;
-	if ((strstr(fmt, "%@") != NULL) || (strstr(fmt, "%l@") != NULL))
+	//va_list checkArgPtr = argPtr;
+	//va_start(checkArgPtr, fmt);
+	int argIdx = 0;
+	char* newFmt = NULL;
+	char tempBuff[2048];
+	char* tempBuffPtr = tempBuff;
+	for (int i = 0; fmt[i] != 0; i++)
 	{
-		fmtStr.Reserve((int)strlen(fmt) + 4);
-		for (int i = 0; fmt[i] != 0; )
+		if (fmt[i] == '%')
 		{
-			if ((fmt[i] == '%') && (fmt[i + 1] == '%'))
+
+			if (fmt[i + 1] == '%')
 			{
-				fmtStr.Append("%%");
-				i += 2;
-				continue;
-			}
-			if ((fmt[i] == '0') && (fmt[i + 1] == 'x') && (fmt[i + 2] == '%') && (fmt[i + 3] == '@'))
-			{
-				fmtStr.Append("%p");
-				i += 4;
-				continue;
-			}
-			if ((fmt[i] == '0') && (fmt[i + 1] == 'x') && (fmt[i + 2] == '%') && (fmt[i + 3] == 'l') && (fmt[i + 4] == '@'))
-			{
-				fmtStr.Append("%p");
-				i += 5;
-				continue;
-			}
-			if ((fmt[i] == '%') && (fmt[i + 1] == '@'))
-			{
-				fmtStr.Append("%p");
-				i += 2;
-				continue;
-			}
-			if ((fmt[i] == '%') && (fmt[i + 1] == 'l') && (fmt[i + 2] == '@'))
-			{
-				fmtStr.Append("%p");
-				i += 3;
+				i++;
 				continue;
 			}
 
-			fmtStr.Append(fmt[i]);
-			i++;
+#ifdef BF32
+			bool isLongAddr = false;
+#else
+			bool isLongAddr = true;
+#endif
+			if ((fmt[i + 1] == 'l') && (fmt[i + 2] == '@'))
+			{
+				isLongAddr = true;
+				i++;
+			}
+
+			if (fmt[i + 1] == '@')
+			{
+				if (newFmt == NULL)
+				{
+					newFmt = (char*)malloc(strlen(fmt) + 1);
+					strcpy(newFmt, fmt);
+					//newFmt = strdup(fmt);
+				}
+				newFmt[i + 1] = 's';
+
+				const char*& argValPtr = *(const char**)((intptr*)argPtr + argIdx);
+
+				if (isLongAddr)
+				{
+					int64 iVal = *(int64*)((intptr*)argPtr + argIdx);
+#ifdef BF32
+					argIdx++; // Takes two spots
+#endif
+					argValPtr = tempBuffPtr;
+
+					int leftVal = (int)(iVal >> 32);
+					if (leftVal != 0)
+					{
+						sprintf(tempBuffPtr, "%x", leftVal);
+						tempBuffPtr += strlen(tempBuffPtr);
+					}
+					tempBuffPtr[0] = '\'';
+					tempBuffPtr++;
+					sprintf(tempBuffPtr, "%08x", (int)iVal);
+					tempBuffPtr += strlen(tempBuffPtr) + 1;
+				}
+				else
+				{
+					int32 iVal = (int32)(intptr)argValPtr;
+					argValPtr = tempBuffPtr;
+					sprintf(tempBuffPtr, "%08x", iVal);
+					tempBuffPtr += strlen(tempBuffPtr) + 1;
+				}
+
+				if (newFmt[i] == 'l')
+					newFmt[i] = '+';
+			}
+			else
+			{
+				//const char*& argValPtr = va_arg(checkArgPtr, const char*);
+			}
+
+			argIdx++;
 		}
-		useFmt = fmtStr.c_str();
+	}
+	if (newFmt != NULL)
+	{
+		Beefy::String retVal = vformat(newFmt, argPtr);
+		free(newFmt);
+		return retVal;
 	}
 
 	// If the string is less than 161 characters,
@@ -731,19 +772,9 @@ String Beefy::vformat(const char* fmt, va_list argPtr)
 	int numChars = 0;
 
 #ifdef _WIN32
-	{
-		va_list args;
-		va_copy(args, argPtr);
-		numChars = _vsnprintf(stackBuffer, attemptedSize, useFmt, args);
-		va_end(args);
-	}
+	numChars = _vsnprintf(stackBuffer, attemptedSize, fmt, argPtr);
 #else
-	{
-		va_list args;
-		va_copy(args, argPtr);
-		numChars = vsnprintf(stackBuffer, attemptedSize, useFmt, args);
-		va_end(args);
-	}
+	numChars = vsnprintf(stackBuffer, attemptedSize, fmt, argPtr);
 #endif
 
 	if ((numChars >= 0) && (numChars <= attemptedSize))
@@ -766,19 +797,9 @@ String Beefy::vformat(const char* fmt, va_list argPtr)
 		heapBuffer = (char*)realloc(heapBuffer, (attemptedSize + 1));
 
 #ifdef _WIN32
-		{
-			va_list args;
-			va_copy(args, argPtr);
-			numChars = _vsnprintf(heapBuffer, attemptedSize, useFmt, args);
-			va_end(args);
-		}
+		numChars = _vsnprintf(heapBuffer, attemptedSize, fmt, argPtr);
 #else
-		{
-			va_list args;
-			va_copy(args, argPtr);
-			numChars = vsnprintf(heapBuffer, attemptedSize, useFmt, args);
-			va_end(args);
-		}
+		numChars = vsnprintf(heapBuffer, attemptedSize, fmt, argPtr);
 #endif
 
 	}

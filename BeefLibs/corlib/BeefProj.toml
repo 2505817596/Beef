@@ -43,6 +43,6 @@ EmitObjectAccessCheck = false
 PreprocessorMacros = ["DEBUG", "VALGRIND"]
 
 [Configs.Release.ESP32]
-PreprocessorMacros = ["BF_PLATFORM_ESP32", "BF_RUNTIME_REDUCED", "BF_REFLECT_MINIMAL"]
+PreprocessorMacros = ["BF_PLATFORM_ESP32"]
 RelocType = "Static"
 PICLevel = "Not"

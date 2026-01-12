@@ -17,10 +17,6 @@ set(OUTPUT_RELEASE Release/bin)
 project(${PROJECT_NAME} CXX C)
 
 add_compile_options(-fPIC)
-if (CMAKE_SYSTEM_PROCESSOR STREQUAL "xtensa")
-  add_compile_options(-Os -ffunction-sections -fdata-sections)
-  add_definitions(-DBF_NO_BFAPP -DBF_SMALL)
-endif()
 
 # Define Release by default.
 if(NOT CMAKE_BUILD_TYPE)
