@@ -65,9 +65,12 @@ void Thread::SetPriorityNative(int priority)
 
 bool Thread::GetIsAlive()
 {
-	if (GetInternalThread() == NULL)
+	auto internalThread = GetInternalThread();
+	if (internalThread == NULL)
 		return false;
-	bool success = BfpThread_WaitFor(GetInternalThread()->mThreadHandle, 0);
+	if (internalThread->mThreadHandle == NULL)
+		return false;
+	bool success = BfpThread_WaitFor(internalThread->mThreadHandle, 0);
 	return !success;
 }
 

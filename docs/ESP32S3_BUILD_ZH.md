@@ -141,11 +141,8 @@ idf_component_register(SRCS "hello_world_main.c"
 ```c
 void BfpSystem_Init(int version, int flags);
 void BfpSystem_SetCommandLine(int argc, char** argv);
-uint32_t BfpSystem_TickCount(void);
-int PrintF(const char* fmt, ...);
-int BeefApp_Init(void);
-void BeefApp_Tick(void);
-void BeefApp_Shutdown(void);
+void BfRuntime_Startup(void);
+int BeefEntryMain(void);
 
 void app_main(void)
 {
@@ -153,10 +150,8 @@ void app_main(void)
     static char* beef_argv[] = { beef_arg0, NULL };
     BfpSystem_Init(2, 0);
     BfpSystem_SetCommandLine(1, beef_argv);
-    PrintF("Beef runtime linked, tick=%u\n", BfpSystem_TickCount());
-    BeefApp_Init();
-    BeefApp_Tick();
-    BeefApp_Shutdown();
+    BfRuntime_Startup();
+    BeefEntryMain(); // Beef 内部自行决定是否常驻循环
 }
 ```
 
@@ -172,4 +167,15 @@ idf.py -p COM4 monitor
 
 - IDEHelper 必须是“链接了 esp-llvm Xtensa 库”的版本，否则无法生成 Xtensa 目标。
 - ESP32 目标的 TLS 使用 emulated TLS，避免 `@TPOFF` 链接错误。
+- 必须在调用任何 Beef 入口（如 `BeefApp_Init`）之前调用 `BfRuntime_Startup`，否则线程/回调未初始化会崩溃。
 - `chdir/chmod/getcwd` 的 linker warning 属于裸机环境下的已知行为。
+
+## 体积优化（Release/ESP32 默认）
+
+- Release/ESP32 已启用 `BF_RUNTIME_REDUCED`，会裁剪部分 Debug/诊断路径。
+- Release/ESP32 已启用 `BF_REFLECT_MINIMAL`，减少反射相关的字符串路径（例如 Object.ToString）。
+- BeefRT 针对 Xtensa 增加了 `-Os -ffunction-sections -fdata-sections` 编译选项；修改后需重新编译运行库并重新拷贝到 `IDE\dist\rt\xtensa-esp32s3-elf`。
+- `BF_SMALL` 仅在 BeefRT 上启用（改为安全的 `%@` -> `%p` 转换并使用 `va_copy`），BeefySysLib 仍保持默认以避免 `defer` 宏被裁剪导致编译失败。
+- ESP-IDF 工程建议切换到 Size 优化：`CONFIG_COMPILER_OPTIMIZATION_SIZE=y`，并把断言级别改为 `CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y`（或 `..._DISABLE`），同时可启用 `CONFIG_COMPILER_OPTIMIZATION_CHECKS_SILENT=y` 以减少错误字符串。
+- LTO 仅在 Xtensa 工具链具备 GCC LTO 插件时可用；`hello_world/CMakeLists.txt` 的 `BEEF_ESP32_LTO` 默认为 OFF，确认工具链支持后再开启（`-DBEEF_ESP32_LTO=ON`）。
+

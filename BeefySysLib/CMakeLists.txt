@@ -35,6 +35,11 @@ add_definitions(
    -DPNG_ARM_NEON_OPT=0
 )
 
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "xtensa")
+  add_compile_options(-Os -ffunction-sections -fdata-sections)
+  add_definitions(-DBF_NO_BFAPP)
+endif()
+
 INCLUDE(CheckIncludeFileCXX)
 CHECK_INCLUDE_FILE_CXX(backtrace.h HAVE_BACKTRACE_HEADERS)
 if (HAVE_BACKTRACE_HEADERS)

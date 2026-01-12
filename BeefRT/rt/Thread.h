@@ -73,11 +73,15 @@ namespace bf
 
 				static Thread* Alloc()
 				{
+					if (BFRTCALLBACKS.Thread_Alloc == NULL)
+						return NULL;
 					return BFRTCALLBACKS.Thread_Alloc();
 				}
 
 				BfInternalThread* GetInternalThread()
 				{
+					if (BFRTCALLBACKS.Thread_GetInternalThread == NULL)
+						return NULL;
 					return BFRTCALLBACKS.Thread_GetInternalThread(this);
 				}
 
@@ -88,11 +92,15 @@ namespace bf
 
 				void SetInternalThread(BfInternalThread* internalThread)
 				{
+					if (BFRTCALLBACKS.Thread_SetInternalThread == NULL)
+						return;
 					BFRTCALLBACKS.Thread_SetInternalThread(this, internalThread);
 				}
 
 				int GetMaxStackSize()
 				{
+					if (BFRTCALLBACKS.Thread_GetMaxStackSize == NULL)
+						return 0;
 					return BFRTCALLBACKS.Thread_GetMaxStackSize(this);
 				}
 			};

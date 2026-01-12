@@ -200,7 +200,9 @@ namespace System.Threading
             set
             {
                 // Changing AutoDelete from another thread while we are running is a race condition
+#if !BF_PLATFORM_ESP32
                 Runtime.Assert((CurrentThread == this) || (!IsAlive));
+#endif
                 mAutoDelete = value;
             }
 
@@ -244,6 +246,7 @@ namespace System.Threading
 
 		public void Start()
 		{
+			RuntimeThreadInit.Check();
 			StartInternal();
 		}
 
@@ -255,6 +258,7 @@ namespace System.Threading
 		
 		public void Start(Object parameter)
 		{
+			RuntimeThreadInit.Check();
 			if (mDelegate is ThreadStart)
 			{
 				Runtime.FatalError();
@@ -361,13 +365,18 @@ namespace System.Threading
             return YieldInternal();
         }
         
-        public static Thread CurrentThread
+		public static Thread CurrentThread
         {
             get
             {
                 return GetCurrentThreadNative();
             }
         }
+
+		public static void EnsureInitialized()
+		{
+			RuntimeThreadInit.Check();
+		}
 
         public int Id
         {

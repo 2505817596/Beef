@@ -1936,7 +1936,13 @@ BFP_EXPORT BfpThread* BFP_CALLTYPE BfpThread_Create(BfpThreadStartProc startProc
     BF_ASSERT(sizeof(pthread_t) <= sizeof(void*));
     pthread_attr_t params;
     pthread_attr_init(&params);
-    pthread_attr_setstacksize(&params, stackSize);
+#if defined(BFP_BAREMETAL)
+    // ESP32 pthread default stack is too small for Beef; use a safer default.
+    if (stackSize <= 0)
+        stackSize = 32 * 1024;
+#endif
+    if (stackSize > 0)
+        pthread_attr_setstacksize(&params, (size_t)stackSize);
     //pthread_attr_setdetachstate(&params,PTHREAD_CREATE_DETACHED);
 
     pthread_create(&thread->mPThread, &params, ThreadFunc, (void*)thread);
@@ -1988,8 +1994,13 @@ BFP_EXPORT BfpThread* BFP_CALLTYPE BfpThread_GetCurrent()
 {
     if (gCurrentThread == NULL)
     {
+#if defined(BFP_BAREMETAL)
+        // Avoid pthread_self() on ESP-IDF main task; it asserts if not a pthread.
+        return (BfpThread*)((intptr)1);
+#else
         // Not a "true" BfpThread, this is either the main thread or a thread we didn't create
         return (BfpThread*)((intptr)pthread_self() | 1);
+#endif
     }
     return gCurrentThread;
 }
@@ -1998,7 +2009,12 @@ BFP_EXPORT BfpThreadId BFP_CALLTYPE BfpThread_GetCurrentId()
 {
     if (gCurrentThread == NULL)
     {
+#if defined(BFP_BAREMETAL)
+        // Avoid pthread_self() on ESP-IDF main task; it asserts if not a pthread.
+        return (BfpThreadId)0;
+#else
         return (BfpThreadId)((intptr)pthread_self());
+#endif
     }
     return (BfpThreadId)gCurrentThread->mPThread;
 }
@@ -2006,6 +2022,18 @@ BFP_EXPORT BfpThreadId BFP_CALLTYPE BfpThread_GetCurrentId()
 BFP_EXPORT bool BFP_CALLTYPE BfpThread_WaitFor(BfpThread* thread, int waitMS)
 {
     FIXTHREAD();
+
+#if defined(BFP_BAREMETAL) && !defined(BFP_HAS_PTHREAD_TIMEDJOIN_NP)
+    if (thread == NULL)
+        return false;
+    bool done = BfpEvent_WaitFor(thread->mDoneEvent, waitMS);
+    if (done && !thread->mPThreadReleased)
+    {
+        pthread_detach(pt);
+        thread->mPThreadReleased = true;
+    }
+    return done;
+#endif
 
     if (waitMS == -1)
     {

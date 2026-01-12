@@ -411,6 +411,9 @@ namespace System
 		static void Init()
 		{
 #if !BF_RUNTIME_DISABLE
+#if BF_PLATFORM_ESP32
+			Threading.Thread.EnsureInitialized();
+#endif
 			BfRtCallbacks.sCallbacks.Init();
 
 			RtFlags flags = sExtraFlags;
