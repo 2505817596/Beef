@@ -17,7 +17,7 @@ function Require-Path([string]$Path) {
   }
 }
 
-$BeefRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")) .Path
+$BeefRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $BeefBuild = Join-Path $BeefRoot "IDE\\dist\\BeefBuild.exe"
 $BeefRtDir = Join-Path $BeefRoot "IDE\\dist\\rt\\xtensa-esp32s3-elf"
 $BeefAr = Join-Path $EspLlvmRoot "build\\bin\\llvm-ar.exe"
@@ -57,18 +57,18 @@ if ($CopyRuntime) {
 
 Write-Host "[3/3] ESP-IDF build"
 Push-Location $IdfProjectPath
-$cmd = "\"$IdfRoot\\export.bat\" && idf.py build"
+$cmd = "`"$IdfRoot\\export.bat`" && idf.py build"
 & cmd /c $cmd
 if ($LASTEXITCODE -ne 0) { throw "idf.py build failed" }
 
 if ($Flash) {
-  $cmd = "\"$IdfRoot\\export.bat\" && idf.py -p $Port flash"
+  $cmd = "`"$IdfRoot\\export.bat`" && idf.py -p $Port flash"
   & cmd /c $cmd
   if ($LASTEXITCODE -ne 0) { throw "idf.py flash failed" }
 }
 
 if ($Monitor) {
-  $cmd = "\"$IdfRoot\\export.bat\" && idf.py -p $Port monitor"
+  $cmd = "`"$IdfRoot\\export.bat`" && idf.py -p $Port monitor"
   & cmd /c $cmd
   if ($LASTEXITCODE -ne 0) { throw "idf.py monitor failed" }
 }
