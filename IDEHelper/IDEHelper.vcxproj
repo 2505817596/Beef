@@ -133,7 +133,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm-3.8\llvm\include;C:\llvm-3.8\bin\include;C:\llvm-3.8\llvm\lib\Target;C:\llvm-3.8\bin\lib\Target\X86;C:\llvm-3.8\llvm\tools\clang\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm-3.8\llvm\include;C:\llvm-3.8\bin\include;C:\llvm-3.8\llvm\lib\Target;C:\llvm-3.8\bin\lib\Target\X86;C:\llvm-3.8\llvm\tools\clang\include;$(BEEF_LLVM_EXTRA_INCLUDE)</AdditionalIncludeDirectories>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
@@ -146,8 +146,8 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <OutputFile>$(SolutionDir)\IDE\dist\$(TargetName).dll</OutputFile>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;LLVMX86Disassembler.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMX86Info.lib;LLVMX86Utils.lib;LLVMX86AsmPrinter.lib;LLVMX86Desc.lib;%(AdditionalDependencies);LLVMMC.lib;LLVMObject.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;LLVMCodeGen.lib;LLVMTarget.lib;LLVMX86CodeGen.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMTransformUtils.lib;LLVMAnalysis.lib;LLVMX86AsmParser.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;libclang.lib;LLVMVectorize.lib;LLVMipo.lib;LLVMInstrumentation.lib</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\llvm-3.8\bin\Debug\lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;LLVMX86Disassembler.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMX86Info.lib;LLVMX86Utils.lib;LLVMX86AsmPrinter.lib;LLVMX86Desc.lib;%(AdditionalDependencies);LLVMMC.lib;LLVMObject.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;LLVMCodeGen.lib;LLVMTarget.lib;LLVMX86CodeGen.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMTransformUtils.lib;LLVMAnalysis.lib;LLVMX86AsmParser.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;libclang.lib;LLVMVectorize.lib;LLVMipo.lib;LLVMInstrumentation.lib;$(BEEF_LLVM_EXTRA_LIBS)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\llvm-3.8\bin\Debug\lib;$(BEEF_LLVM_EXTRA_LIBDIR)</AdditionalLibraryDirectories>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <ImportLibrary>$(SolutionDir)\IDE\dist\$(TargetName).lib</ImportLibrary>
     </Link>
@@ -162,7 +162,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;..\extern\llvm-project_19_1_7\llvm\include;..\extern\llvm_win64_19_1_7\include;..\extern\llvm-project_19_1_7\llvm\lib\Target;..\extern\llvm_win64_19_1_7\lib\Target\AArch64;..\extern\llvm_win64_19_1_7\lib\Target\X86;..\extern\llvm-project_19_1_7\llvm\tools\clang\include;..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(BEEF_LLVM_EXTRA_INCLUDE);../;../BeefySysLib/platform/win;../BeefySysLib/third_party;..\extern\llvm-project_19_1_7\llvm\include;..\extern\llvm_win64_19_1_7\include;..\extern\llvm-project_19_1_7\llvm\lib\Target;..\extern\llvm_win64_19_1_7\lib\Target\AArch64;..\extern\llvm_win64_19_1_7\lib\Target\X86;..\extern\llvm-project_19_1_7\llvm\tools\clang\include;..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\include</AdditionalIncludeDirectories>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -175,8 +175,8 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <OutputFile>$(SolutionDir)\IDE\dist\$(TargetName).dll</OutputFile>
-      <AdditionalDependencies>ntdll.lib;rpcrt4.lib;cabinet.lib;winmm.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;libcurl_a.lib;wininet.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMMC.lib;LLVMObject.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;LLVMCodeGen.lib;LLVMTarget.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMAnalysis.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;LLVMVectorize.lib;LLVMipo.lib;LLVMInstrumentation.lib;LLVMDebugInfoDWARF.lib;LLVMDebugInfoPDB.lib;LLVMDebugInfoCodeView.lib;LLVMGlobalISel.lib;LLVMBinaryFormat.lib;LLVMBitstreamReader.lib;LLVMLTO.lib;LLVMPasses.lib;LLVMLinker.lib;LLVMIRReader.lib;LLVMDemangle.lib;LLVMTransformUtils.lib;LLVMAggressiveInstCombine.lib;LLVMCFGuard.lib;LLVMTextAPI.lib;LLVMRemarks.lib;LLVMX86Info.lib;LLVMX86Desc.lib;LLVMX86CodeGen.lib;LLVMX86AsmParser.lib;LLVMX86Disassembler.lib;LLVMAArch64Info.lib;LLVMAArch64Utils.lib;LLVMAArch64Desc.lib;LLVMAArch64CodeGen.lib;LLVMAArch64Disassembler.lib;LLVMARMInfo.lib;LLVMARMUtils.lib;LLVMARMDesc.lib;LLVMARMCodeGen.lib;LLVMARMDisassembler.lib;LLVMWebAssemblyInfo.lib;LLVMWebAssemblyDesc.lib;LLVMWebAssemblyCodeGen.lib;LLVMWebAssemblyDisassembler.lib;LLVMWebAssemblyUtils.lib;LLVMTargetParser.lib;LLVMIRPrinter.lib;LLVMWebAssemblyAsmParser.lib;LLVMObjCARCOpts.lib;LLVMCodeGenTypes.lib;LLVMCoroutines.lib;LLVMFrontendOpenMP.lib;LLVMFrontendOffloading.lib;LLVMHipStdPar.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>..\extern\llvm_win64_19_1_7\Debug\lib; ..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\lib;..\extern\curl\deps\lib;..\extern\jemalloc_win\x64\debug</AdditionalLibraryDirectories>
+      <AdditionalDependencies>ntdll.lib;rpcrt4.lib;cabinet.lib;winmm.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;libcurl_a.lib;wininet.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMMC.lib;LLVMObject.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;LLVMCodeGen.lib;LLVMTarget.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMAnalysis.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;LLVMVectorize.lib;LLVMipo.lib;LLVMInstrumentation.lib;LLVMDebugInfoDWARF.lib;LLVMDebugInfoPDB.lib;LLVMDebugInfoCodeView.lib;LLVMGlobalISel.lib;LLVMBinaryFormat.lib;LLVMBitstreamReader.lib;LLVMLTO.lib;LLVMPasses.lib;LLVMLinker.lib;LLVMIRReader.lib;LLVMDemangle.lib;LLVMTransformUtils.lib;LLVMAggressiveInstCombine.lib;LLVMCFGuard.lib;LLVMTextAPI.lib;LLVMRemarks.lib;LLVMX86Info.lib;LLVMX86Desc.lib;LLVMX86CodeGen.lib;LLVMX86AsmParser.lib;LLVMX86Disassembler.lib;LLVMAArch64Info.lib;LLVMAArch64Utils.lib;LLVMAArch64Desc.lib;LLVMAArch64CodeGen.lib;LLVMAArch64Disassembler.lib;LLVMARMInfo.lib;LLVMARMUtils.lib;LLVMARMDesc.lib;LLVMARMCodeGen.lib;LLVMARMDisassembler.lib;LLVMWebAssemblyInfo.lib;LLVMWebAssemblyDesc.lib;LLVMWebAssemblyCodeGen.lib;LLVMWebAssemblyDisassembler.lib;LLVMWebAssemblyUtils.lib;LLVMTargetParser.lib;LLVMIRPrinter.lib;LLVMWebAssemblyAsmParser.lib;LLVMObjCARCOpts.lib;LLVMCodeGenTypes.lib;LLVMCoroutines.lib;LLVMFrontendOpenMP.lib;LLVMFrontendOffloading.lib;LLVMHipStdPar.lib;%(AdditionalDependencies);$(BEEF_LLVM_EXTRA_LIBS)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(BEEF_LLVM_EXTRA_LIBDIR);..\extern\llvm_win64_19_1_7\Debug\lib; ..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\lib;..\extern\curl\deps\lib;..\extern\jemalloc_win\x64\debug</AdditionalLibraryDirectories>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <ImportLibrary>$(SolutionDir)\IDE\dist\$(TargetName).lib</ImportLibrary>
       <IgnoreSpecificDefaultLibraries>MSVCRT</IgnoreSpecificDefaultLibraries>
@@ -199,7 +199,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm-3.8\llvm\include;C:\llvm-3.8\bin\include;C:\llvm-3.8\llvm\lib\Target;C:\llvm-3.8\bin\lib\Target\X86;C:\llvm-3.8\llvm\tools\clang\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm-3.8\llvm\include;C:\llvm-3.8\bin\include;C:\llvm-3.8\llvm\lib\Target;C:\llvm-3.8\bin\lib\Target\X86;C:\llvm-3.8\llvm\tools\clang\include;$(BEEF_LLVM_EXTRA_INCLUDE)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -210,8 +210,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <OutputFile>$(SolutionDir)\IDE\dist\$(TargetName).dll</OutputFile>
-      <AdditionalLibraryDirectories>C:\llvm-3.8\bin\Release\lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;LLVMX86Disassembler.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMX86Info.lib;LLVMX86Utils.lib;LLVMX86AsmPrinter.lib;LLVMX86Desc.lib;%(AdditionalDependencies);LLVMMC.lib;LLVMObject.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;LLVMCodeGen.lib;LLVMTarget.lib;LLVMX86CodeGen.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMTransformUtils.lib;LLVMAnalysis.lib;LLVMX86AsmParser.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;libclang.lib;LLVMVectorize.lib;LLVMipo.lib;LLVMInstrumentation.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\llvm-3.8\bin\Release\lib;$(BEEF_LLVM_EXTRA_LIBDIR)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;LLVMX86Disassembler.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMX86Info.lib;LLVMX86Utils.lib;LLVMX86AsmPrinter.lib;LLVMX86Desc.lib;%(AdditionalDependencies);LLVMMC.lib;LLVMObject.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;LLVMCodeGen.lib;LLVMTarget.lib;LLVMX86CodeGen.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMTransformUtils.lib;LLVMAnalysis.lib;LLVMX86AsmParser.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;libclang.lib;LLVMVectorize.lib;LLVMipo.lib;LLVMInstrumentation.lib;$(BEEF_LLVM_EXTRA_LIBS)</AdditionalDependencies>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <ImportLibrary>$(SolutionDir)\IDE\dist\$(TargetName).lib</ImportLibrary>
     </Link>
@@ -225,7 +225,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>zBP_DISABLED;WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;..\extern\llvm-project_19_1_7\llvm\include;..\extern\llvm_win64_19_1_7\include;..\extern\llvm-project_19_1_7\llvm\lib\Target;..\extern\llvm_win64_19_1_7\lib\Target\X86;..\extern\llvm-project_19_1_7\llvm\tools\clang\include;..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(BEEF_LLVM_EXTRA_INCLUDE);../;../BeefySysLib/platform/win;../BeefySysLib/third_party;..\extern\llvm-project_19_1_7\llvm\include;..\extern\llvm_win64_19_1_7\include;..\extern\llvm-project_19_1_7\llvm\lib\Target;..\extern\llvm_win64_19_1_7\lib\Target\X86;..\extern\llvm-project_19_1_7\llvm\tools\clang\include;..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -237,8 +237,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <OutputFile>$(SolutionDir)\IDE\dist\$(TargetName).dll</OutputFile>
-      <AdditionalLibraryDirectories>..\extern\llvm_win64_19_1_7\Release\lib; ..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\lib;..\extern\curl\deps\lib;..\extern\jemalloc_win\x64\release</AdditionalLibraryDirectories>
-      <AdditionalDependencies>ntdll.lib;rpcrt4.lib;cabinet.lib;winmm.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;libcurl_a.lib;wininet.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMMC.lib;LLVMObject.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;LLVMCodeGen.lib;LLVMTarget.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMAnalysis.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;LLVMVectorize.lib;LLVMipo.lib;LLVMInstrumentation.lib;LLVMDebugInfoDWARF.lib;LLVMDebugInfoPDB.lib;LLVMDebugInfoCodeView.lib;LLVMGlobalISel.lib;LLVMBinaryFormat.lib;LLVMBitstreamReader.lib;LLVMLTO.lib;LLVMPasses.lib;LLVMLinker.lib;LLVMIRReader.lib;LLVMDemangle.lib;LLVMTransformUtils.lib;LLVMAggressiveInstCombine.lib;LLVMCFGuard.lib;LLVMTextAPI.lib;LLVMRemarks.lib;LLVMX86Info.lib;LLVMX86Desc.lib;LLVMX86CodeGen.lib;LLVMX86AsmParser.lib;LLVMX86Disassembler.lib;LLVMAArch64Info.lib;LLVMAArch64Utils.lib;LLVMAArch64Desc.lib;LLVMAArch64CodeGen.lib;LLVMAArch64Disassembler.lib;LLVMARMInfo.lib;LLVMARMUtils.lib;LLVMARMDesc.lib;LLVMARMCodeGen.lib;LLVMARMDisassembler.lib;LLVMWebAssemblyInfo.lib;LLVMWebAssemblyDesc.lib;LLVMWebAssemblyCodeGen.lib;LLVMWebAssemblyDisassembler.lib;LLVMWebAssemblyUtils.lib;LLVMTargetParser.lib;LLVMIRPrinter.lib;LLVMObjCARCOpts.lib;LLVMCodeGenTypes.lib;LLVMCoroutines.lib;LLVMFrontendOpenMP.lib;LLVMFrontendOffloading.lib;LLVMHipStdPar.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(BEEF_LLVM_EXTRA_LIBDIR);..\extern\llvm_win64_19_1_7\Release\lib; ..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\lib;..\extern\curl\deps\lib;..\extern\jemalloc_win\x64\release</AdditionalLibraryDirectories>
+      <AdditionalDependencies>ntdll.lib;rpcrt4.lib;cabinet.lib;winmm.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;libcurl_a.lib;wininet.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMMC.lib;LLVMObject.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;LLVMCodeGen.lib;LLVMTarget.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMAnalysis.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;LLVMVectorize.lib;LLVMipo.lib;LLVMInstrumentation.lib;LLVMDebugInfoDWARF.lib;LLVMDebugInfoPDB.lib;LLVMDebugInfoCodeView.lib;LLVMGlobalISel.lib;LLVMBinaryFormat.lib;LLVMBitstreamReader.lib;LLVMLTO.lib;LLVMPasses.lib;LLVMLinker.lib;LLVMIRReader.lib;LLVMDemangle.lib;LLVMTransformUtils.lib;LLVMAggressiveInstCombine.lib;LLVMCFGuard.lib;LLVMTextAPI.lib;LLVMRemarks.lib;LLVMX86Info.lib;LLVMX86Desc.lib;LLVMX86CodeGen.lib;LLVMX86AsmParser.lib;LLVMX86Disassembler.lib;LLVMAArch64Info.lib;LLVMAArch64Utils.lib;LLVMAArch64Desc.lib;LLVMAArch64CodeGen.lib;LLVMAArch64Disassembler.lib;LLVMARMInfo.lib;LLVMARMUtils.lib;LLVMARMDesc.lib;LLVMARMCodeGen.lib;LLVMARMDisassembler.lib;LLVMWebAssemblyInfo.lib;LLVMWebAssemblyDesc.lib;LLVMWebAssemblyCodeGen.lib;LLVMWebAssemblyDisassembler.lib;LLVMWebAssemblyUtils.lib;LLVMTargetParser.lib;LLVMIRPrinter.lib;LLVMObjCARCOpts.lib;LLVMCodeGenTypes.lib;LLVMCoroutines.lib;LLVMFrontendOpenMP.lib;LLVMFrontendOffloading.lib;LLVMHipStdPar.lib;%(AdditionalDependencies);$(BEEF_LLVM_EXTRA_LIBS)</AdditionalDependencies>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
       <ImportLibrary>$(SolutionDir)\IDE\dist\$(TargetName).lib</ImportLibrary>
@@ -257,7 +257,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm\llvm\include;C:\llvm\src\include;C:\llvm\llvm\lib\Target;C:\llvm\src\lib\Target\X86;C:\llvm\llvm\tools\clang\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm\llvm\include;C:\llvm\src\include;C:\llvm\llvm\lib\Target;C:\llvm\src\lib\Target\X86;C:\llvm\llvm\tools\clang\include;$(BEEF_LLVM_EXTRA_INCLUDE)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
@@ -267,8 +267,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <OutputFile>$(SolutionDir)\IDE\dist\$(TargetName).dll</OutputFile>
-      <AdditionalLibraryDirectories>C:\llvm\src\Release\lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;LLVMX86Disassembler.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMX86Info.lib;LLVMX86Utils.lib;LLVMX86AsmPrinter.lib;LLVMX86Desc.lib;%(AdditionalDependencies);LLVMMC.lib;LLVMObject.lib;LLVMX86AsmPrinter.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;;LLVMCodeGen.lib;LLVMTarget.lib;LLVMX86CodeGen.lib;LLVMSupport.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMTransformUtils.lib;LLVMAnalysis.lib;LLVMX86AsmParser.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;LLVMBitWriter.lib;libclang.imp;LLVMVectorize.lib;LLVMipo.lib;LLVMipa.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\llvm\src\Release\lib;$(BEEF_LLVM_EXTRA_LIBDIR)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;LLVMX86Disassembler.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMX86Info.lib;LLVMX86Utils.lib;LLVMX86AsmPrinter.lib;LLVMX86Desc.lib;%(AdditionalDependencies);LLVMMC.lib;LLVMObject.lib;LLVMX86AsmPrinter.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;;LLVMCodeGen.lib;LLVMTarget.lib;LLVMX86CodeGen.lib;LLVMSupport.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMTransformUtils.lib;LLVMAnalysis.lib;LLVMX86AsmParser.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;LLVMBitWriter.lib;libclang.imp;LLVMVectorize.lib;LLVMipo.lib;LLVMipa.lib;$(BEEF_LLVM_EXTRA_LIBS)</AdditionalDependencies>
       <ProgramDatabaseFile />
       <ImportLibrary>$(SolutionDir)\IDE\dist\$(TargetName).lib</ImportLibrary>
     </Link>
@@ -282,7 +282,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm\llvm\include;C:\llvm\src\include;C:\llvm\llvm\lib\Target;C:\llvm\src\lib\Target\X86;C:\llvm\llvm\tools\clang\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm\llvm\include;C:\llvm\src\include;C:\llvm\llvm\lib\Target;C:\llvm\src\lib\Target\X86;C:\llvm\llvm\tools\clang\include;$(BEEF_LLVM_EXTRA_INCLUDE)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
@@ -292,8 +292,8 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <OutputFile>$(SolutionDir)\IDE\dist\$(TargetName).dll</OutputFile>
-      <AdditionalLibraryDirectories>C:\llvm\src\Release\lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;LLVMX86Disassembler.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMX86Info.lib;LLVMX86Utils.lib;LLVMX86AsmPrinter.lib;LLVMX86Desc.lib;%(AdditionalDependencies);LLVMMC.lib;LLVMObject.lib;LLVMX86AsmPrinter.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;;LLVMCodeGen.lib;LLVMTarget.lib;LLVMX86CodeGen.lib;LLVMSupport.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMTransformUtils.lib;LLVMAnalysis.lib;LLVMX86AsmParser.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;LLVMBitWriter.lib;libclang.imp;LLVMVectorize.lib;LLVMipo.lib;LLVMipa.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\llvm\src\Release\lib;$(BEEF_LLVM_EXTRA_LIBDIR)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;LLVMX86Disassembler.lib;LLVMMCDisassembler.lib;LLVMSupport.lib;LLVMX86Info.lib;LLVMX86Utils.lib;LLVMX86AsmPrinter.lib;LLVMX86Desc.lib;%(AdditionalDependencies);LLVMMC.lib;LLVMObject.lib;LLVMX86AsmPrinter.lib;LLVMCore.lib;LLVMBitReader.lib;LLVMAsmParser.lib;LLVMMCParser.lib;;LLVMCodeGen.lib;LLVMTarget.lib;LLVMX86CodeGen.lib;LLVMSupport.lib;LLVMScalarOpts.lib;LLVMInstCombine.lib;LLVMSelectionDAG.lib;LLVMProfileData.lib;LLVMTransformUtils.lib;LLVMAnalysis.lib;LLVMX86AsmParser.lib;LLVMAsmPrinter.lib;LLVMBitWriter.lib;LLVMBitWriter.lib;libclang.imp;LLVMVectorize.lib;LLVMipo.lib;LLVMipa.lib;$(BEEF_LLVM_EXTRA_LIBS)</AdditionalDependencies>
       <ProgramDatabaseFile>
       </ProgramDatabaseFile>
       <ImportLibrary>$(SolutionDir)\IDE\dist\$(TargetName).lib</ImportLibrary>

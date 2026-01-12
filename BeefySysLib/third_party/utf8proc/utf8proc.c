@@ -339,7 +339,7 @@ static utf8proc_int32_t seqindex_decode_index(const utf8proc_uint32_t seqindex)
   return seqindex_decode_entry(&entry);
 }
 
-static utf8proc_ssize_t seqindex_write_char_decomposed(utf8proc_uint16_t seqindex, utf8proc_int32_t *dst, utf8proc_ssize_t bufsize, utf8proc_option_t options, int *last_boundclass) {
+static utf8proc_ssize_t seqindex_write_char_decomposed(utf8proc_uint16_t seqindex, utf8proc_int32_t *dst, utf8proc_ssize_t bufsize, utf8proc_option_t options, utf8proc_int32_t *last_boundclass) {
   utf8proc_ssize_t written = 0;
   const utf8proc_uint16_t *entry = &utf8proc_sequences[seqindex & 0x1FFF];
   int len = seqindex >> 13;
@@ -395,7 +395,7 @@ UTF8PROC_DLLEXPORT const char *utf8proc_category_string(utf8proc_int32_t c) {
   return utf8proc_decompose_char((replacement_uc), dst, bufsize, \
   options & ~UTF8PROC_LUMP, last_boundclass)
 
-UTF8PROC_DLLEXPORT utf8proc_ssize_t utf8proc_decompose_char(utf8proc_int32_t uc, utf8proc_int32_t *dst, utf8proc_ssize_t bufsize, utf8proc_option_t options, int *last_boundclass) {
+UTF8PROC_DLLEXPORT utf8proc_ssize_t utf8proc_decompose_char(utf8proc_int32_t uc, utf8proc_int32_t *dst, utf8proc_ssize_t bufsize, utf8proc_option_t options, utf8proc_int32_t *last_boundclass) {
   const utf8proc_property_t *property;
   utf8proc_propval_t category;
   utf8proc_int32_t hangul_sindex;
@@ -503,7 +503,7 @@ UTF8PROC_DLLEXPORT utf8proc_ssize_t utf8proc_decompose_custom(
     utf8proc_int32_t uc;
     utf8proc_ssize_t rpos = 0;
     utf8proc_ssize_t decomp_result;
-    int boundclass = UTF8PROC_BOUNDCLASS_START;
+    utf8proc_int32_t boundclass = UTF8PROC_BOUNDCLASS_START;
     while (1) {
       if (options & UTF8PROC_NULLTERM) {
         rpos += utf8proc_iterate(str + rpos, -1, &uc);
@@ -753,4 +753,3 @@ UTF8PROC_DLLEXPORT utf8proc_uint8_t *utf8proc_NFKC(const utf8proc_uint8_t *str) 
     UTF8PROC_COMPOSE | UTF8PROC_COMPAT);
   return retval;
 }
-

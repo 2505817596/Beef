@@ -41,3 +41,7 @@ EmitObjectAccessCheck = false
 
 [Configs.Debug.Linux64]
 PreprocessorMacros = ["DEBUG", "VALGRIND"]
+
+[Configs.Release.ESP32]
+RelocType = "Static"
+PICLevel = "Not"

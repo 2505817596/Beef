@@ -11163,6 +11163,12 @@ BF_EXPORT void BF_CALLTYPE BfCompiler_SetOptions(BfCompiler* bfCompiler, BfProje
 		options->mMachineType = BfMachineType_AArch64;
 	else if (options->mTargetTriple.StartsWith("armv"))
 		options->mMachineType = BfMachineType_ARM;
+	else if (options->mTargetTriple.StartsWith("xtensa"))
+		options->mMachineType = BfMachineType_ARM;
+	else if (options->mTargetTriple.StartsWith("riscv32"))
+		options->mMachineType = BfMachineType_ARM;
+	else if (options->mTargetTriple.StartsWith("riscv64"))
+		options->mMachineType = BfMachineType_x64;
 	else if (options->mTargetTriple.StartsWith("wasm32"))
 		options->mMachineType = BfMachineType_Wasm32;
 	else if (options->mTargetTriple.StartsWith("wasm64"))

@@ -201,7 +201,7 @@ void Beefy::DataStream::Write(int64 val)
 
 void Beefy::DataStream::Write(const StringImpl& val)
 {
-	Write((int)val.length());
+	Write((int32)val.length());
 	Write((void*)val.c_str(), (int)val.length());
 }
 

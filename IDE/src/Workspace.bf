@@ -154,6 +154,12 @@ namespace IDE
 					return 4;
 				if (name.StartsWith("arm-"))
 					return 4;
+				if (name.StartsWith("xtensa-"))
+					return 4;
+				if (name.StartsWith("riscv32-"))
+					return 4;
+				if (name.StartsWith("riscv64-"))
+					return 8;
 				if (name.StartsWith("i686-"))
 					return 4;
 				return 8;

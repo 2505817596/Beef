@@ -364,9 +364,9 @@ void ModelDef::GenerateCollisionData()
 	points.Reserve(triWorkList.mSize);	
 	Array<float> centers;
 	centers.Reserve(triWorkList.mSize);
-	Array<int> left;
+	Array<int32> left;
 	left.Reserve(triWorkList.mSize);
-	Array<int> right;
+	Array<int32> right;
 	right.Reserve(triWorkList.mSize);	
 	
 	mBVTris.Reserve(triWorkList.mSize * 2);
@@ -733,21 +733,21 @@ BF_EXPORT void* BF_CALLTYPE Res_OpenModel(const char* fileName, const char* base
 BF_EXPORT StringView BF_CALLTYPE Res_SerializeModel(ModelDef* modelDef)
 {
 	DynMemStream ms;
-	ms.Write((int)0xBEEF0001);
+	ms.Write((int32)0xBEEF0001);
 
 	for (auto& mesh : modelDef->mMeshes)
 	{
 		for (auto& prims : mesh.mPrimitives)
 		{
-			ms.Write((int)prims.mFlags);
-			ms.Write(prims.mTexPaths.mSize);
+			ms.Write((int32)prims.mFlags);
+			ms.Write((int32)prims.mTexPaths.mSize);
 			for (auto& path : prims.mTexPaths)
 				ms.Write(path);
 
-			ms.Write((int)prims.mIndices.mSize);
+			ms.Write((int32)prims.mIndices.mSize);
 			ms.Write(prims.mIndices.mVals, prims.mIndices.mSize * 2);
 
-			ms.Write((int)prims.mVertices.mSize);
+			ms.Write((int32)prims.mVertices.mSize);
 
 			for (int i = 0; i < prims.mVertices.mSize; i++)
 			{

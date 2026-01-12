@@ -96,7 +96,7 @@ intptr StringView::IndexOf(const StringView& subStr, bool ignoreCase) const
 	return -1;
 }
 
-intptr StringView::IndexOf(const StringView& subStr, int startIdx) const
+intptr StringView::IndexOf(const StringView& subStr, int32 startIdx) const
 {
 	return IndexOf(subStr, (int64)startIdx);
 }
@@ -114,7 +114,7 @@ intptr StringView::IndexOf(const StringView& subStr, int64 startIdx) const
 	return -1;
 }
 
-intptr StringView::IndexOf(char c, int startIdx) const
+intptr StringView::IndexOf(char c, int32 startIdx) const
 {
 	auto ptr = mPtr;
 	for (intptr i = startIdx; i < mLength; i++)
@@ -842,7 +842,7 @@ intptr StringImpl::IndexOf(const StringView& subStr, int64 startIdx) const
 	return -1;
 }
 
-intptr StringImpl::IndexOf(char c, int startIdx) const
+intptr StringImpl::IndexOf(char c, int32 startIdx) const
 {
 	auto ptr = GetPtr();
 	for (intptr i = startIdx; i < mLength; i++)

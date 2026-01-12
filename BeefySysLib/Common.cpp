@@ -1006,7 +1006,7 @@ int64 Beefy::EndianSwap(int64 val)
 }
 #endif
 
-int32 Beefy::EndianSwap(int val)
+int32 Beefy::EndianSwap(int32 val)
 {
 	return ((val & 0x000000FF) << 24) | ((val & 0x0000FF00) <<  8) |
 		((val & 0x00FF0000) >>  8) | ((val & 0xFF000000) >> 24);
@@ -1405,14 +1405,14 @@ bool Beefy::ParseMemorySpan(const StringImpl& str, void*& outPtr, int& outSize, 
 
 		if (outKey != NULL)
 		{
-			int nextColon = (int)str.IndexOf(':', colon + 1);
+						int nextColon = (int)str.IndexOf(':', (int32)(colon + 1));
 			if (nextColon > 0)
 			{
 				*outKey = str.Substring(nextColon + 1);
 			}
 			else
 			{
-				int dotPos = (int)str.IndexOf('.', colon + 1);
+								int dotPos = (int)str.IndexOf('.', (int32)(colon + 1));
 				*outKey = StrFormat("ANON_%d", anonymousIdx++) + str.Substring(dotPos);
 			}
 		}

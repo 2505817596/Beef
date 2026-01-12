@@ -1,14 +1,18 @@
 #if defined(__GLIBC__)
 #define BFP_HAS_EXECINFO
 #define BFP_HAS_DLINFO
+#define BFP_HAS_PTHREAD_TIMEDJOIN_NP
+#define BFP_HAS_PTHREAD_GETATTR_NP
 #elif defined(__has_include)
 #if __has_include(<execinfo.h>)
 #define BFP_HAS_EXECINFO
 #endif
 #endif
-#define BFP_HAS_PTHREAD_TIMEDJOIN_NP
-#define BFP_HAS_PTHREAD_GETATTR_NP
+#if defined(__has_include)
+#if __has_include(<sys/inotify.h>)
 #define BFP_HAS_FILEWATCHER
+#endif
+#endif
 
 #include "../posix/PosixCommon.cpp"
 

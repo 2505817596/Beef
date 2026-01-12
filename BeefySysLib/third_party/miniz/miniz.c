@@ -2985,6 +2985,10 @@ void tinfl_decompressor_free(tinfl_decompressor *pDecomp)
 
 #ifndef MINIZ_NO_ARCHIVE_APIS
 
+#if defined(__XTENSA__)
+#define MINIZ_NO_TIME
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -8,12 +8,18 @@
 #include "Dictionary.h"
 #include "TLSingleton.h"
 
+#if defined(__XTENSA__)
+#define BP_DISABLED
+#endif
+
 #ifdef BF_PLATFORM_WINDOWS
 #include <winsock.h>
 #else
+#ifndef BP_DISABLED
 #include <sys/types.h>          /* See NOTES */
 #include <sys/socket.h>
 typedef int SOCKET;
+#endif
 #endif
 
 enum BpConnectState

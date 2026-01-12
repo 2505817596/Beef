@@ -13,6 +13,20 @@ namespace IDE.Util
 			return dashCount >= 2;
 		}
 
+		public static bool IsBareMetal(StringView str)
+		{
+			for (let elem in str.Split('-'))
+			{
+				switch (elem)
+				{
+				case "elf",
+					 "none":
+					return true;
+				}
+			}
+			return false;
+		}
+
 		public static Workspace.PlatformType GetPlatformType(StringView str)
 		{
 			var str;

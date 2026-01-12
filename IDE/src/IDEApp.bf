@@ -12134,8 +12134,14 @@ namespace IDE
 			let hostPlatform = Workspace.PlatformType.GetHostPlatform();
 			if (platform == .Unknown)
 			{
-				OutputErrorLine("Failed to compiler for unknown platform '{}'", mPlatformName);
-				return false;
+				StringView targetTriple = workspaceOptions.mTargetTriple;
+				if (targetTriple.IsWhiteSpace && TargetTriple.IsTargetTriple(mPlatformName))
+					targetTriple = mPlatformName;
+				if ((targetTriple.IsWhiteSpace) || (!TargetTriple.IsBareMetal(targetTriple)))
+				{
+					OutputErrorLine("Failed to compiler for unknown platform '{}'", mPlatformName);
+					return false;
+				}
 			}
 
 			bool canCompile = false;

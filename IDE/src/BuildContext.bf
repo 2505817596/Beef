@@ -318,6 +318,14 @@ namespace IDE
 #else
 				arPath.Append("/usr/bin/ar");
 #endif
+				Dictionary<String, String> envVars = scope .();
+				Environment.GetEnvironmentVariables(envVars);
+				String overrideAr = null;
+				if (envVars.TryGetValue("BEEF_AR", out overrideAr))
+				{
+					if (!String.IsNullOrEmpty(overrideAr))
+						arPath.Set(overrideAr);
+				}
 
 				String workingDir = scope String();
 				workingDir.Append(gApp.mInstallDir);
@@ -856,7 +864,14 @@ namespace IDE
 			if (workspaceOptions.mRuntimeKind == .Disabled)
 				return;
 
-			if ((platformType == .Linux) || (platformType == .macOS) || (platformType == .iOS))
+			bool isBareMetal = false;
+			StringView targetTriple = workspaceOptions.mTargetTriple;
+			if (targetTriple.IsWhiteSpace && TargetTriple.IsTargetTriple(gApp.mPlatformName))
+				targetTriple = gApp.mPlatformName;
+			if (!targetTriple.IsWhiteSpace && TargetTriple.IsBareMetal(targetTriple))
+				isBareMetal = true;
+
+			if ((platformType == .Linux) || (platformType == .macOS) || (platformType == .iOS) || isBareMetal)
 			{
 				if (options.mBuildOptions.mBeefLibType == .DynamicDebug)
 					outRt.Append("libBeefRT_d.a");
@@ -1378,8 +1393,20 @@ namespace IDE
 					if (workspaceOptions.mToolsetType == .LLVM)
 					{
 						linkerPath.Clear();
-						linkerPath.Append(gApp.mInstallDir);
-						linkerPath.Append(@"llvm\bin\lld-link.exe");
+						Dictionary<String, String> envVars = scope .();
+						Environment.GetEnvironmentVariables(envVars);
+						String overrideLld = null;
+						if (envVars.TryGetValue("BEEF_LLD_LINK", out overrideLld))
+						{
+							if (!String.IsNullOrEmpty(overrideLld))
+								linkerPath.Set(overrideLld);
+						}
+
+						if (linkerPath.IsEmpty)
+						{
+							linkerPath.Append(gApp.mInstallDir);
+							linkerPath.Append(@"llvm\bin\lld-link.exe");
+						}
 						//linkerPath = @"C:\Program Files\LLVM\bin\lld-link.exe";
 
 						var ltoType = workspaceOptions.mLTOType;

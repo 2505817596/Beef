@@ -45,12 +45,17 @@ extern "C"
 
 #define INVALID_SOCKET -1
 
-typedef uint64_t uint64;
+#if defined(__XTENSA__)
+typedef unsigned int uint32;
+typedef int int32;
+#else
 typedef uint32_t uint32;
+typedef int32_t int32;
+#endif
+typedef uint64_t uint64;
 typedef uint16_t uint16;
 typedef uint8_t uint8;
 typedef int64_t int64;
-typedef int32_t int32;
 typedef int16_t int16;
 typedef int8_t int8;
 typedef unsigned int uint;
@@ -148,6 +153,7 @@ typedef void* HMODULE;
 #define DIR_SEP_CHAR '/'
 #define DIR_SEP_CHAR_ALT '\\'
 
+#if !defined(__XTENSA__)
 static char* itoa(int value, char* str, int base)
 {
     if (base == 16)
@@ -156,6 +162,7 @@ static char* itoa(int value, char* str, int base)
         sprintf(str, "%d", value);
     return str;
 }
+#endif
 
 inline uint32 InterlockedCompareExchange(volatile uint32* dest, uint32 exch, uint32 comp)
 {

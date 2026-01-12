@@ -23,6 +23,12 @@ void BfTargetTriple::Parse()
 		mMachineType = BfMachineType_x64;
 	else if ((mTargetTriple.StartsWith("aarch64")) || (mTargetTriple.StartsWith("arm64")))
 		mMachineType = BfMachineType_AArch64;
+	else if ((mTargetTriple.StartsWith("armv")) || (mTargetTriple.StartsWith("arm-")))
+		mMachineType = BfMachineType_ARM;
+	else if ((mTargetTriple.StartsWith("xtensa")) || (mTargetTriple.StartsWith("riscv32")))
+		mMachineType = BfMachineType_ARM;
+	else if (mTargetTriple.StartsWith("riscv64"))
+		mMachineType = BfMachineType_x64;
 	else
 		mMachineType = BfMachineType_Unknown;
 	mParsed = true;

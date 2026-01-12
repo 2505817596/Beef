@@ -1993,6 +1993,11 @@ void BfIRCodeGen::InitTarget()
 	}
 
 	llvm::TargetOptions Options = llvm::TargetOptions(); // InitTargetOptionsFromCodeGenFlags();
+	if ((theTriple.getArch() == llvm::Triple::xtensa) || mTargetTriple.mTargetTriple.StartsWith("xtensa"))
+	{
+		// Use emulated TLS for Xtensa to avoid unsupported TLS relocations in GNU ld.
+		Options.EmulatedTLS = true;
+	}
 
 	String featuresStr;
 
@@ -6410,29 +6415,9 @@ int BF_AARC64_Linkage()
 
 void BfIRCodeGen::StaticInit()
 {
-	LLVMInitializeX86TargetInfo();
-	LLVMInitializeX86Target();
-	LLVMInitializeX86TargetMC();
-	LLVMInitializeX86AsmPrinter();
-	LLVMInitializeX86AsmParser();
-	LLVMInitializeX86Disassembler();
-
-	LLVMInitializeARMTargetInfo();
-	LLVMInitializeARMTarget();
-	LLVMInitializeARMTargetMC();
-	LLVMInitializeARMAsmPrinter();
-
-	LLVMInitializeAArch64TargetInfo();
-	LLVMInitializeAArch64Target();
-	LLVMInitializeAArch64TargetMC();
-	LLVMInitializeAArch64AsmPrinter();
-	//LLVMInitializeAArch64Parser();
-	//LLVMInitializeX86Disassembler();
-
-	LLVMInitializeWebAssemblyTargetInfo();
-	LLVMInitializeWebAssemblyTarget();
-	LLVMInitializeWebAssemblyTargetMC();
-	LLVMInitializeWebAssemblyAsmPrinter();
-	//LLVMInitializeWebAssemblyAsmParser();
-	LLVMInitializeWebAssemblyDisassembler();
+	llvm::InitializeAllTargetInfos();
+	llvm::InitializeAllTargets();
+	llvm::InitializeAllTargetMCs();
+	llvm::InitializeAllAsmPrinters();
+	llvm::InitializeAllDisassemblers();
 }

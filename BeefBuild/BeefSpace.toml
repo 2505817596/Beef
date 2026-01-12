@@ -16,6 +16,10 @@ ConfigSelections = {IDEHelper = {Enabled = false}}
 
 [Configs.Debug.Win64]
 EnableSideStack = true
+EnableObjectDebugFlags = false
+EnableRealtimeLeakCheck = false
+AllocType = "CRT"
+AllocStackTraceDepth = 0
 ConfigSelections = {IDEHelper = {Enabled = false}, Debugger64 = {Enabled = false}, BeefySysLib = {Enabled = false}}
 
 [Configs.Release.Win32]

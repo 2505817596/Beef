@@ -152,7 +152,7 @@ bool FTFont::Load(const StringImpl& fileName, float pointSize)
 
 		String useFileName = fileName;
 		int faceIdx = 0;
-		int atPos = (int)useFileName.IndexOf('@', 1);
+		int atPos = (int)useFileName.IndexOf('@', (int32)1);
 		if (atPos != -1)
 		{
 			faceIdx = atoi(useFileName.c_str() + atPos + 1);

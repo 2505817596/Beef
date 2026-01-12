@@ -1,26 +1,72 @@
 #include "Common.h"
 #include "BFPlatform.h"
+
+#if defined(__XTENSA__)
+#define BFP_BAREMETAL
+#endif
+
 #include <sys/stat.h>
-#ifdef BF_PLATFORM_LINUX
+#if defined(BF_PLATFORM_LINUX) && defined(__has_include)
+#if __has_include(<sys/syscall.h>)
 #include <sys/syscall.h>
 #endif
-#ifndef BF_PLATFORM_DARWIN
+#elif defined(BF_PLATFORM_LINUX)
+#include <sys/syscall.h>
+#endif
+#if !defined(BF_PLATFORM_DARWIN) && defined(__has_include)
+#if __has_include(<sys/sysinfo.h>)
+#define BFP_HAS_SYSINFO
 #include <sys/sysinfo.h>
 #endif
+#elif !defined(BF_PLATFORM_DARWIN)
+#define BFP_HAS_SYSINFO
+#include <sys/sysinfo.h>
+#endif
+#if !defined(BFP_BAREMETAL)
 #include <sys/wait.h>
+#endif
+#if !defined(BFP_BAREMETAL) && defined(__has_include)
+#if __has_include(<poll.h>)
+#define BFP_HAS_POLL
 #include <poll.h>
+#endif
+#elif !defined(BFP_BAREMETAL)
+#define BFP_HAS_POLL
+#include <poll.h>
+#endif
 #include <wchar.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <time.h>
 #ifdef BFP_HAS_DLINFO
 #include <link.h>
 #endif
 #include <dirent.h>
+#if defined(__has_include)
+#if __has_include(<syslog.h>)
+#define BFP_HAS_SYSLOG
 #include <syslog.h>
+#endif
+#else
+#define BFP_HAS_SYSLOG
+#include <syslog.h>
+#endif
 #include <unistd.h>
 #include <signal.h>
+#if !defined(BFP_BAREMETAL)
 #include <spawn.h>
+#endif
+#if defined(__has_include)
+#if __has_include(<dlfcn.h>)
+#define BFP_HAS_DLOPEN
 #include <dlfcn.h>
+#endif
+#else
+#if !defined(BFP_BAREMETAL)
+#define BFP_HAS_DLOPEN
+#include <dlfcn.h>
+#endif
+#endif
 #include "../PlatformInterface.h"
 #include "../PlatformHelper.h"
 #include "../../util/CritSect.h"
@@ -51,6 +97,10 @@
 #include "../../third_party/stb/stb_sprintf.h"
 #include <cxxabi.h>
 #include <random>
+
+#ifndef PATH_MAX
+#define PATH_MAX 1024
+#endif
 
 #ifndef BFP_PRINTF
 #define BFP_PRINTF(...) printf (__VA_ARGS__)
@@ -364,6 +414,7 @@ static BfpGlobalData* BfpGetGlobalData()
 	return gBfpGlobal;
 }
 
+#ifndef BFP_BAREMETAL
 struct BfpGlobalSpawnData
 {
 	static BfpGlobalSpawnData* s_gBfpGlobalSpawnData;
@@ -521,6 +572,7 @@ struct BfpGlobalSpawnData
 };
 
 BfpGlobalSpawnData* BfpGlobalSpawnData::s_gBfpGlobalSpawnData = NULL;
+#endif
 
 
 #ifdef BFP_HAS_BACKTRACE
@@ -623,7 +675,7 @@ static _Unwind_Reason_Code UnwindHandler(struct _Unwind_Context* context, void* 
 
 #if BFP_HAS_ATOS
     gUnwindExecStr += StrFormat(" %p", addr);
-#else
+#elif defined(BFP_HAS_DLOPEN)
     Dl_info info;
     if (dladdr(addr, &info))
     {
@@ -634,6 +686,12 @@ static _Unwind_Reason_Code UnwindHandler(struct _Unwind_Context* context, void* 
         else
             BFP_ERRPRINTF("0x%p\n", addr);
     }
+    else
+    {
+        BFP_ERRPRINTF("0x%p\n", addr);
+    }
+#else
+    BFP_ERRPRINTF("0x%p\n", addr);
 #endif
     return _URC_NO_REASON;
 }
@@ -764,7 +822,10 @@ BFP_EXPORT void BFP_CALLTYPE BfpSystem_ShutdownCrashCatcher()
 
 BFP_EXPORT void BFP_CALLTYPE BfpSystem_SetCommandLine(int argc, char** argv)
 {
-#ifdef BF_PLATFORM_DARWIN
+#if defined(BFP_BAREMETAL)
+    if ((argv != NULL) && (argv[0] != NULL))
+        gExePath = argv[0];
+#elif defined(BF_PLATFORM_DARWIN)
     char path[4096];
     uint32_t size = sizeof(path);
     if (_NSGetExecutablePath(path, &size) == 0)
@@ -783,14 +844,25 @@ BFP_EXPORT void BFP_CALLTYPE BfpSystem_SetCommandLine(int argc, char** argv)
 
     if (gExePath.IsEmpty())
     {
-        char* relPath = argv[0];
-        char* cwd = getcwd(NULL, 0);
-        gExePath = GetAbsPath(relPath, cwd);
-        free(cwd);
+        if ((argv != NULL) && (argv[0] != NULL))
+        {
+            char* cwd = getcwd(NULL, 0);
+            if (cwd != NULL)
+            {
+                gExePath = GetAbsPath(argv[0], cwd);
+                free(cwd);
+            }
+            else
+            {
+                gExePath = argv[0];
+            }
+        }
     }
 
 	for (int i = 0; i < argc; i++)
 	{
+		if ((argv == NULL) || (argv[i] == NULL))
+			continue;
 		if (i != 0)
 			gCmdLine.Append(' ');
 
@@ -837,7 +909,9 @@ void BfpSystem_Shutdown()
         gFileWatchManager = NULL;
     }
 
+#ifndef BFP_BAREMETAL
 	BfpGlobalSpawnData::Shutdown();
+#endif
 }
 
 BFP_EXPORT uint32 BFP_CALLTYPE BfpSystem_TickCount()
@@ -958,7 +1032,14 @@ BFP_EXPORT int BFP_CALLTYPE BfpSystem_GetNumLogicalCPUs(BfpSystemResult* outResu
     return count;
 #else
     OUTRESULT(BfpSystemResult_Ok);
+#ifdef BFP_HAS_SYSINFO
     return get_nprocs_conf();
+#else
+    long count = sysconf(_SC_NPROCESSORS_ONLN);
+    if (count > 0)
+        return (int)count;
+    return 1;
+#endif
 #endif
 }
 
@@ -1008,6 +1089,7 @@ BFP_EXPORT void BFP_CALLTYPE BfpSystem_GetComputerName(char* outStr, int* inOutS
 
 // BfpProcess
 
+#ifndef BFP_BAREMETAL
 struct BfpProcess
 {
     pid_t mProcessId;
@@ -1207,6 +1289,70 @@ BFP_EXPORT int BFP_CALLTYPE BfpProcess_GetProcessId(BfpProcess* process)
     return process->mProcessId;
 }
 
+#else
+struct BfpProcess
+{
+    pid_t mProcessId;
+    String mImageName;
+
+    BfpProcess()
+    {
+        mProcessId = -1;
+    }
+};
+
+BFP_EXPORT intptr BFP_CALLTYPE BfpProcess_GetCurrentId()
+{
+    return 0;
+}
+
+BFP_EXPORT bool BFP_CALLTYPE BfpProcess_IsRemoteMachine(const char* machineName)
+{
+    return false;
+}
+
+BFP_EXPORT BfpProcess* BFP_CALLTYPE BfpProcess_GetById(const char* machineName, int processId, BfpProcessResult* outResult)
+{
+    OUTRESULT(BfpProcessResult_UnknownError);
+    return NULL;
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpProcess_Enumerate(const char* machineName, BfpProcess** outProcesses, int* inOutProcessesSize, BfpProcessResult* outResult)
+{
+    if (inOutProcessesSize != NULL)
+        *inOutProcessesSize = 0;
+    OUTRESULT(BfpProcessResult_UnknownError);
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpProcess_Release(BfpProcess* process)
+{
+    delete process;
+}
+
+BFP_EXPORT bool BFP_CALLTYPE BfpProcess_WaitFor(BfpProcess* process, int waitMS, int* outExitCode, BfpProcessResult* outResult)
+{
+    OUTRESULT(BfpProcessResult_UnknownError);
+    return false;
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpProcess_GetMainWindowTitle(BfpProcess* process, char* outTitle, int* inOutTitleSize, BfpProcessResult* outResult)
+{
+    String title;
+    TryStringOut(title, outTitle, inOutTitleSize, (BfpResult*)outResult);
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpProcess_GetProcessName(BfpProcess* process, char* outName, int* inOutNameSize, BfpProcessResult* outResult)
+{
+    String name;
+    TryStringOut(name, outName, inOutNameSize, (BfpResult*)outResult);
+}
+
+BFP_EXPORT int BFP_CALLTYPE BfpProcess_GetProcessId(BfpProcess* process)
+{
+    return (process != NULL) ? process->mProcessId : -1;
+}
+#endif
+
 // BfpSpawn
 
 struct BfpSpawn
@@ -1219,6 +1365,43 @@ struct BfpSpawn
     int mStdErrFD;
 };
 
+#ifdef BFP_BAREMETAL
+BFP_EXPORT BfpSpawn* BFP_CALLTYPE BfpSpawn_Create(const char* inTargetPath, const char* args, const char* workingDir, const char* env, BfpSpawnFlags flags, BfpSpawnResult* outResult)
+{
+    OUTRESULT(BfpSpawnResult_UnknownError);
+    return NULL;
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpSpawn_Release(BfpSpawn* spawn)
+{
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpSpawn_Kill(BfpSpawn* spawn, int exitCode, BfpKillFlags killFlags, BfpSpawnResult* outResult)
+{
+    OUTRESULT(BfpSpawnResult_UnknownError);
+}
+
+BFP_EXPORT bool BFP_CALLTYPE BfpSpawn_WaitFor(BfpSpawn* spawn, int waitMS, int* outExitCode, BfpSpawnResult* outResult)
+{
+    OUTRESULT(BfpSpawnResult_UnknownError);
+    return false;
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpSpawn_GetStdHandles(BfpSpawn* spawn, BfpFile** outStdIn, BfpFile** outStdOut, BfpFile** outStdErr)
+{
+    if (outStdIn != NULL)
+        *outStdIn = NULL;
+    if (outStdOut != NULL)
+        *outStdOut = NULL;
+    if (outStdErr != NULL)
+        *outStdErr = NULL;
+}
+
+BFP_EXPORT int BFP_CALLTYPE BfpSpawn_GetProcessId(BfpSpawn* spawn)
+{
+    return -1;
+}
+#else
 BFP_EXPORT BfpSpawn* BFP_CALLTYPE BfpSpawn_Create(const char* inTargetPath, const char* args, const char* workingDir, const char* env, BfpSpawnFlags flags, BfpSpawnResult* outResult)
 {
     Beefy::Array<Beefy::StringView> stringViews;
@@ -1577,9 +1760,11 @@ BFP_EXPORT void BFP_CALLTYPE BfpSpawn_GetStdHandles(BfpSpawn* spawn, BfpFile** o
 
 BFP_EXPORT int BFP_CALLTYPE BfpSpawn_GetProcessId(BfpSpawn* spawn)
 {
-    return spawn->mPid;
+	return spawn->mPid;
 }
+#endif
 
+#ifndef BFP_BAREMETAL
 bool BfpSpawn_WaitFor(BfpSpawn* spawn, int waitMS, int* outExitCode, BfpSpawnResult* outResult)
 {
     if (spawn->mExited)
@@ -1664,6 +1849,7 @@ bool BfpSpawn_WaitFor(BfpSpawn* spawn, int waitMS, int* outExitCode, BfpSpawnRes
 #endif
 	return true;
 }
+#endif
 
 // BfpFileWatcher
 
@@ -1843,10 +2029,11 @@ BFP_EXPORT bool BFP_CALLTYPE BfpThread_WaitFor(BfpThread* thread, int waitMS)
 #else
     if (thread == NULL)
         BF_FATAL("Invalid thread with non-infinite wait");
-    return BfpEvent_WaitFor(thread->mDoneEvent, waitMS);
+	return BfpEvent_WaitFor(thread->mDoneEvent, waitMS);
 #endif
 }
 
+#ifndef BFP_BAREMETAL
 BFP_EXPORT void BFP_CALLTYPE BfpSpawn_Kill(BfpSpawn* spawn, int exitCode, BfpKillFlags killFlags, BfpSpawnResult* outResult)
 {
 	if (spawn->mExited)
@@ -1985,6 +2172,7 @@ BFP_EXPORT void BFP_CALLTYPE BfpSpawn_Kill(BfpSpawn* spawn, int exitCode, BfpKil
 
 	OUTRESULT(BfpSpawnResult_Ok);
 }
+#endif
 
 BFP_EXPORT BfpThreadPriority BFP_CALLTYPE BfpThread_GetPriority(BfpThread* thread, BfpThreadResult* outResult)
 {
@@ -2240,6 +2428,7 @@ BFP_EXPORT bool BFP_CALLTYPE BfpEvent_WaitFor(BfpEvent* event, int waitMS)
     return true;
 }
 
+#ifdef BFP_HAS_DLOPEN
 BFP_EXPORT BfpDynLib* BFP_CALLTYPE BfpDynLib_Load(const char* fileName)
 {
     BfpDynLib* mod = NULL;
@@ -2270,13 +2459,6 @@ BFP_EXPORT BfpDynLib* BFP_CALLTYPE BfpDynLib_Load(const char* fileName)
                 return mod;
         }
     }
-
-     /*mod = (BfpDynLib*)dlopen("/var/Beef/qt-build/Debug/bin/libIDEHelper.so", RTLD_LAZY);;
-     if (mod == NULL)
-     {
-         printf("Err: %s\n", dlerror());
-         fflush(stdout);
-     }*/
 
     return NULL;
 }
@@ -2318,6 +2500,26 @@ BFP_EXPORT void* BFP_CALLTYPE BfpDynLib_GetProcAddress(BfpDynLib* lib, const cha
 {
     return dlsym((void*)lib, name);
 }
+#else
+BFP_EXPORT BfpDynLib* BFP_CALLTYPE BfpDynLib_Load(const char* fileName)
+{
+    return NULL;
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpDynLib_Release(BfpDynLib* lib)
+{
+}
+
+BFP_EXPORT void BFP_CALLTYPE BfpDynLib_GetFilePath(BfpDynLib* lib, char* outPath, int* inOutPathSize, BfpLibResult* outResult)
+{
+    OUTRESULT(BfpLibResult_UnknownError);
+}
+
+BFP_EXPORT void* BFP_CALLTYPE BfpDynLib_GetProcAddress(BfpDynLib* lib, const char* name)
+{
+    return NULL;
+}
+#endif
 
 BFP_EXPORT void BFP_CALLTYPE BfpDirectory_Create(const char* path, BfpFileResult* outResult)
 {
@@ -2439,6 +2641,7 @@ BFP_EXPORT BfpFile* BFP_CALLTYPE BfpFile_Create(const char* inName, BfpFileCreat
 		if ((createFlags & BfpFileCreateFlag_Pipe) != 0)
 		{
 			name = "/tmp/" + name;
+#ifndef BFP_BAREMETAL
 			if ((createKind == BfpFileCreateKind_CreateAlways) ||
 				(createKind == BfpFileCreateKind_CreateIfNotExists))
 			{
@@ -2462,6 +2665,10 @@ BFP_EXPORT BfpFile* BFP_CALLTYPE BfpFile_Create(const char* inName, BfpFileCreat
 					return -1;
 				}
 			}
+#else
+			OUTRESULT(BfpFileResult_UnknownError);
+			return -1;
+#endif
 		}
 		else
 		{
@@ -2745,7 +2952,11 @@ BFP_EXPORT BfpTimeStamp BFP_CALLTYPE BfpFile_GetTime_LastWrite(const char* path)
 BFP_EXPORT BfpFileAttributes BFP_CALLTYPE BfpFile_GetAttributes(const char* path, BfpFileResult* outResult)
 {
 	struct stat fileStat = {0};
-	if(lstat(path, &fileStat) < 0)
+#if defined(BFP_BAREMETAL)
+	if (stat(path, &fileStat) < 0)
+#else
+	if (lstat(path, &fileStat) < 0)
+#endif
 	{
 		switch (errno)
 		{
