@@ -76,7 +76,7 @@ BEEF_ZIG_TARGET=x86_64-linux-musl
 建议仅构建运行库（避免 IDEHelper/LLVM 依赖）：
 
 ```
-.\scripts\zig-build-musl-runtime.ps1 -Arch x64 -Zig "D:\zig\zig.exe"
+dotnet run .\scripts\zig-build-musl-runtime.cs -- -Arch x64 -Zig "D:\zig\zig.exe"
 ```
 
 输出库：
@@ -113,7 +113,7 @@ cmake --build build_musl_zig_rt --target BeefRT BeefySysLib -- -j1
 - 运行库构建示例（仅展示差异项）：
 
 ```
-.\scripts\zig-build-musl-runtime.ps1 -Arch arm32 -Zig "D:\zig\zig.exe"
+dotnet run .\scripts\zig-build-musl-runtime.cs -- -Arch arm32 -Zig "D:\zig\zig.exe"
 ```
 
 - 运行库拷贝到：`IDE/dist/rt/armv7-unknown-linux-musleabihf/`
@@ -142,11 +142,11 @@ OtherLinkFlags = "$(LinkFlags) -static -mcpu=cortex_a7 -mfpu=neon -mfloat-abi=ha
 
 ## 脚本（可选，一键构建运行库）
 
-脚本：`scripts/zig-build-musl-runtime.ps1`
+脚本：`scripts/zig-build-musl-runtime.cs`
 
 ```
-.\scripts\zig-build-musl-runtime.ps1 -Arch x64 -Zig "D:\zig\zig.exe"
-.\scripts\zig-build-musl-runtime.ps1 -Arch arm32 -Zig "D:\zig\zig.exe"
+dotnet run .\scripts\zig-build-musl-runtime.cs -- -Arch x64 -Zig "D:\zig\zig.exe"
+dotnet run .\scripts\zig-build-musl-runtime.cs -- -Arch arm32 -Zig "D:\zig\zig.exe"
 ```
 
 脚本会配置/构建运行库并拷贝到 `IDE/dist/rt/<TargetTriple>/`。
@@ -179,7 +179,7 @@ OtherLinkFlags = "$(LinkFlags) -static -mcpu=cortex_a7 -mfpu=neon -mfloat-abi=ha
   - `BeefySysLib/Common.cpp`
   - `BeefRT/CMakeLists.txt`
   - `BeefLibs/corlib/src/FFI/Function.bf`
-  - `scripts/zig-build-musl-runtime.ps1`
+  - `scripts/zig-build-musl-runtime.cs`
   - `bin/zig-cc.cmd`
   - `bin/zig-cxx.cmd`
   - `build_tools/zig-cc-cygwin.sh`
