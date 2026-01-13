@@ -540,6 +540,7 @@ namespace IDE
 				}
 				bool useOverrideCompiler = false;
 				Dictionary<String, String> envVars = scope .();
+				defer { for (var kv in envVars) { delete kv.key; delete kv.value; } }
 				Environment.GetEnvironmentVariables(envVars);
 
 				String overrideCompiler = null;
@@ -916,6 +917,7 @@ namespace IDE
 		    fromDir = scope String(gApp.mInstallDir);
 			String overrideDir = null;
 			Dictionary<String, String> envVars = scope .();
+			defer { for (var kv in envVars) { delete kv.key; delete kv.value; } }
 			Environment.GetEnvironmentVariables(envVars);
 			if (envVars.TryGetValue("BEEF_RT_DIR", out overrideDir))
 			{

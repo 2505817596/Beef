@@ -11396,6 +11396,7 @@ namespace IDE
 
 			String compilerExePath = (options.mCOptions.mCompilerType == Project.CCompilerType.GCC) ? gccExePath : isC ? clangCExePath : clangCppExePath;
 			Dictionary<String, String> envVars = scope .();
+			defer { for (var kv in envVars) { delete kv.key; delete kv.value; } }
 			Environment.GetEnvironmentVariables(envVars);
 
 			String overrideCompiler = null;

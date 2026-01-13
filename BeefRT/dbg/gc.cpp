@@ -1242,6 +1242,91 @@ void BFGC::Sweep()
 
 extern Beefy::StringT<0> gDbgErrorString;
 
+static const int kDbgErrorStringLimit = 8192;
+
+template <typename TString>
+static void AppendEscapedString(TString& outStr, const Beefy::StringView& strView, int maxLen)
+{
+	int len = (int)strView.mLength;
+	int useLen = (len > maxLen) ? maxLen : len;
+	for (int i = 0; i < useLen; i++)
+	{
+		unsigned char c = (unsigned char)strView.mPtr[i];
+		switch (c)
+		{
+		case '\n': outStr.Append("\\n"); break;
+		case '\r': outStr.Append("\\r"); break;
+		case '\t': outStr.Append("\\t"); break;
+		case '\"': outStr.Append("\\\""); break;
+		case '\\': outStr.Append("\\\\"); break;
+		default:
+			if ((c < 0x20) || (c == 0x7F))
+				outStr.Append(StrFormat("\\x%02X", c));
+			else
+				outStr.Append((char)c);
+		}
+	}
+	if (len > useLen)
+		outStr.Append("...");
+}
+
+template <typename TString>
+static void AppendAllocInfo(TString& outStr, bf::System::Object* obj)
+{
+	int addrCount = 0;
+	intptr* addrs = NULL;
+	intptr singleAddr = 0;
+
+	if ((obj->mObjectFlags & BF_OBJECTFLAG_ALLOCINFO_SHORT) != 0)
+	{
+		intptr dbgAllocInfo = obj->mDbgAllocInfo;
+		int allocSize = (int)(dbgAllocInfo >> 16);
+		int capturedTraceCount = (int)(dbgAllocInfo & 0xFF);
+		if (capturedTraceCount > 0)
+		{
+			addrCount = capturedTraceCount;
+			addrs = (intptr*)((uint8*)obj + allocSize);
+		}
+	}
+	else if ((obj->mObjectFlags & BF_OBJECTFLAG_ALLOCINFO) != 0)
+	{
+		intptr allocSize = obj->mDbgAllocInfo;
+		intptr info = *(intptr*)((uint8*)obj + allocSize);
+		int capturedTraceCount = (int)((info >> 8) & 0xFFFF);
+		if (capturedTraceCount > 0)
+		{
+			addrCount = capturedTraceCount;
+			addrs = (intptr*)((uint8*)obj + allocSize + sizeof(intptr));
+		}
+	}
+	else
+	{
+		intptr dbgAllocInfo = obj->mDbgAllocInfo;
+		if (dbgAllocInfo > 1)
+		{
+			singleAddr = dbgAllocInfo;
+			addrCount = 1;
+			addrs = &singleAddr;
+		}
+	}
+
+	if (addrCount <= 0)
+		return;
+
+	outStr += StrFormat("   [AllocSite] 0x%@\n", (void*)addrs[0]);
+
+	if (addrCount > 1)
+	{
+		outStr.Append("   [AllocStackTrace]\n");
+		int maxCount = 32;
+		int useCount = (addrCount > maxCount) ? maxCount : addrCount;
+		for (int i = 0; i < useCount; i++)
+			outStr += StrFormat("    0x%@\n", (void*)addrs[i]);
+		if (addrCount > maxCount)
+			outStr.Append("    ...\n");
+	}
+}
+
 void BFGC::ProcessSweepInfo()
 {
 	if (mSweepInfo.mLeakCount > 0)
@@ -1304,8 +1389,30 @@ void BFGC::ProcessSweepInfo()
 				errorStr += StrFormat("LEAK\t(System.Object)0x%@\n", obj);
 				errorStr += StrFormat("   (%s)0x%@\n", typeName.c_str(), obj);
 
-				if (gDbgErrorString.length() < 256)
+				if (typeName == "System.String")
+				{
+					auto strObj = (bf::System::String*)obj;
+					Beefy::StringView strView = BFRTCALLBACKS.String_ToStringView(strObj);
+					errorStr.Append("   \"");
+					AppendEscapedString(errorStr, strView, 200);
+					errorStr.Append("\"\n");
+				}
+
+				AppendAllocInfo(errorStr, obj);
+
+				if (gDbgErrorString.length() < kDbgErrorStringLimit)
+				{
 					gDbgErrorString += StrFormat("   (%s)0x%@\n", typeName.c_str(), obj);
+					if (typeName == "System.String")
+					{
+						auto strObj = (bf::System::String*)obj;
+						Beefy::StringView strView = BFRTCALLBACKS.String_ToStringView(strObj);
+						gDbgErrorString.Append("   \"");
+						AppendEscapedString(gDbgErrorString, strView, 200);
+						gDbgErrorString.Append("\"\n");
+					}
+					AppendAllocInfo(gDbgErrorString, obj);
+				}
 
 				passLeakCount++;
 			}
