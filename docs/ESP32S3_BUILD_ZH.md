@@ -163,6 +163,23 @@ idf.py -p COM4 flash
 idf.py -p COM4 monitor
 ```
 
+## 8) 一键脚本（dotnet 单文件）
+
+需要 .NET 10（支持 `dotnet run <file.cs>`）。在仓库根目录执行：
+
+```bat
+dotnet run scripts\esp32_build.cs -- ^
+  -WorkspacePath D:\fairy\beefesp32demo ^
+  -IdfProjectPath D:\fairy\esp32demo\hello_world ^
+  -IdfRoot D:\fairy\esp32demo\esp-idf ^
+  -EspLlvmRoot D:\fairy\esp-llvm-msvc ^
+  -CopyRuntime -Flash -Monitor -Port COM4 -Baud 921600
+```
+
+说明：
+- 脚本会从当前目录向上自动定位 Beef 根目录；不在根目录执行时，也可显式传 `-BeefRoot`。
+- `-Baud 0` 可禁用脚本中的波特率覆盖，使用 IDF 默认值。
+
 ## 备注
 
 - IDEHelper 必须是“链接了 esp-llvm Xtensa 库”的版本，否则无法生成 Xtensa 目标。

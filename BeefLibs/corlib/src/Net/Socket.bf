@@ -267,13 +267,22 @@ namespace System.Net
 		[CRepr]
 		public struct SockAddr
 		{
+#if BF_PLATFORM_ESP32
+			public uint8 sa_len;
+			public uint8 sa_family;
+#else
 			public int16 sa_family;
+#endif
 		}
 
 		[CRepr]
 		public struct SockAddr_in : SockAddr
         {
+#if BF_PLATFORM_ESP32
+	        public int16 sin_family { get => (.)sa_family; set mut => sa_family = (.)value; }
+#else
 	        public int16 sin_family { get => sa_family; set mut => sa_family = value; }
+#endif
 	        public uint16 sin_port;
 	        public IPv4Address sin_addr;
 	        public char8[8] sin_zero;
@@ -282,7 +291,11 @@ namespace System.Net
 		[CRepr]
 		public struct SockAddr_in6 : SockAddr
 		{
+#if BF_PLATFORM_ESP32
+			public int16 sin6_family { get => (.)sa_family; set mut => sa_family = (.)value; }
+#else
 			public int16 sin6_family { get => sa_family; set mut => sa_family = value; }
+#endif
 			public uint16 sin6_port;
 			public uint32 sin6_flowinfo;
 			public IPv6Address sin6_addr;
@@ -390,7 +403,11 @@ namespace System.Net
 		public const HSocket INVALID_SOCKET = (HSocket)-1;
 		public const int32 SOCKET_ERROR = -1;
 		public const int AF_INET = 2;
+#if BF_PLATFORM_ESP32
+		public const int AF_INET6 = 10;
+#else
 		public const int AF_INET6 = 23;
+#endif
 		public const int SOCK_STREAM = 1;
 		public const int SOCK_DGRAM = 2;
 		public const int IPPROTO_TCP = 6;
@@ -407,6 +424,11 @@ namespace System.Net
 		public const int SO_REUSEADDR = 0x0004;
  		public const int SO_BROADCAST = 0x0020;
 		public const int IPV6_V6ONLY = 27;
+#elif BF_PLATFORM_ESP32
+		public const int SOL_SOCKET = 0x0fff;
+		public const int SO_REUSEADDR = 0x0004;
+		public const int SO_BROADCAST = 0x0020;
+		public const int IPV6_V6ONLY = 27;
 #else
 		public const int SOL_SOCKET = 1;
 		public const int SO_REUSEADDR = 2;
@@ -418,6 +440,8 @@ namespace System.Net
 		public const IPv6Address IN6ADDR_ANY = default;
 
 #if BF_PLATFORM_WINDOWS
+		const int FIONBIO = (int)0x8004667e;
+#elif BF_PLATFORM_ESP32
 		const int FIONBIO = (int)0x8004667e;
 #else
 		const int FIONBIO = (int)0x00005421;
@@ -476,6 +500,9 @@ namespace System.Net
 		static extern int32* _errno();
 #elif BF_PLATFORM_MACOS
 		[LinkName("__error")]
+		static extern int32* _errno();
+#elif BF_PLATFORM_ESP32
+		[LinkName("__errno")]
 		static extern int32* _errno();
 #else
 		[CLink]
@@ -664,6 +691,9 @@ namespace System.Net
 				return .Err(GetLastError());
 
 			sockAddr.sin_family = AF_INET;
+#if BF_PLATFORM_ESP32
+			sockAddr.sa_len = (uint8)sizeof(SockAddr_in);
+#endif
 			Internal.MemCpy(&sockAddr.sin_addr, hostEnt.h_addr_list[0], sizeof(IPv4Address));
 			sockAddr.sin_port = (uint16)htons((int16)port);
 
@@ -916,6 +946,9 @@ namespace System.Net
 		public Result<void, SocketError> OpenEx(IPv4Address addr, int32 port, SocketType type, Protocol protocol, int32 backlog, params SockOpt[] opts)
 		{
 			SockAddr_in bindAddr = default;
+#if BF_PLATFORM_ESP32
+			bindAddr.sa_len = (uint8)sizeof(SockAddr_in);
+#endif
 			bindAddr.sin_addr = addr;
 			bindAddr.sin_port = (.)htons((int16)port);
 			bindAddr.sin_family = AF_INET;
@@ -926,6 +959,9 @@ namespace System.Net
 		public Result<void, SocketError> OpenEx(IPv6Address addr, int32 port, SocketType type, Protocol protocol, int32 backlog, params SockOpt[] opts)
 		{
 			SockAddr_in6 bindAddr = default;
+#if BF_PLATFORM_ESP32
+			bindAddr.sa_len = (uint8)sizeof(SockAddr_in6);
+#endif
 			bindAddr.sin6_addr = addr;
 			bindAddr.sin6_port = (.)htons((int16)port);
 			bindAddr.sin6_family = AF_INET6;
