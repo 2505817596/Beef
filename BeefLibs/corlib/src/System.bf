@@ -39,7 +39,7 @@ namespace System
 		}
 	}
 
-#if BF_ENABLE_OBJECT_DEBUG_FLAGS
+#if BF_ENABLE_OBJECT_DEBUG_FLAGS || BF_DEBUG_ALLOC
 	[AlwaysInclude]
 #endif
 	struct CallStackAddr : int
@@ -47,7 +47,7 @@ namespace System
 
 	}
 
-#if BF_ENABLE_OBJECT_DEBUG_FLAGS
+#if BF_ENABLE_OBJECT_DEBUG_FLAGS || BF_DEBUG_ALLOC
 	[AlwaysInclude]
 #endif
 	struct CallStackList : int

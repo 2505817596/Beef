@@ -195,6 +195,10 @@ void bf::System::Runtime::Dbg_Init(int version, int flags, BfRtCallbacks* callba
 
 	gBfRtDbgCallbacks = *callbacks;
 	gBfRtDbgFlags = (BfRtFlags)flags;
+#ifdef BF_GC_SUPPORTED
+	// Enable single-frame stack traces for raw object allocations so raw leak reports can show alloc sites.
+	sObjectAllocData.mMaxStackTrace = 1;
+#endif
 #ifdef BF_GC_SUPPORTED	
 	gGCDbgData.mDbgFlags = gBfRtDbgFlags;
 #endif
@@ -368,7 +372,8 @@ bf::System::Object* Internal::Dbg_ObjectAlloc(bf::System::ClassVData* classVData
 #else
 		if ((BFRTFLAGS & BfRtFlags_DebugAlloc) != 0)
 		{			
-			uint8* allocBytes = (uint8*)BfRawAllocate(allocSize, &sObjectAllocData, NULL, 0);
+			void* stackTrace = BF_RETURN_ADDRESS;
+			uint8* allocBytes = (uint8*)BfRawAllocate(allocSize, &sObjectAllocData, &stackTrace, 1);
 			result = (bf::System::Object*)allocBytes;
 		}
 		else
@@ -626,7 +631,8 @@ void* Internal::Dbg_RawAlloc(intptr size)
 
 void* Internal::Dbg_RawObjectAlloc(intptr size)
 {
-	return BfRawAllocate(size, &sObjectAllocData, NULL, 0);
+	void* stackTrace = BF_RETURN_ADDRESS;
+	return BfRawAllocate(size, &sObjectAllocData, &stackTrace, 1);
 }
 
 void Internal::Dbg_RawFree(void* ptr)

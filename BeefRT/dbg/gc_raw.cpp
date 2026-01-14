@@ -63,6 +63,22 @@ static intptr gRawAllocSize = 0;
 static intptr gMaxRawAllocSize = 0;
 static intptr gDeferredObjectFreeSize = 0;
 
+static bf::System::Type* TryGetObjectType(void* dataPtr)
+{
+	if ((((intptr)dataPtr) & (sizeof(intptr) - 1)) != 0)
+		return NULL;
+
+	auto obj = (bf::System::Object*)dataPtr;
+	if ((gBfRtDbgFlags & BfRtFlags_ObjectHasDebugFlags) != 0)
+	{
+		if ((obj->mObjectFlags & BfObjectFlag_Allocated) == 0)
+			return NULL;
+		if ((obj->mObjectFlags & BfObjectFlag_Deleted) != 0)
+			return NULL;
+	}
+	return obj->_GetType();
+}
+
 void BFGC::RawInit()
 {
 	if (UNLIKELY(Static::pageheap() == NULL)) ThreadCache::InitModule();
@@ -422,10 +438,9 @@ void BFGC::RawShutdown()
 
 	if (mSweepInfo.mLeakCount > 0)
 	{
-		Beefy::String errorStr = StrFormat("%d raw memory leak%s detected.\nMouse over an 'i' icon in the Output panel to view the leaked memory or the associated allocation stack trace.",
+		Beefy::String errorStr = StrFormat("%d raw memory leak%s detected.\nMouse over an 'i' icon in the Output panel to view the leaked memory or the associated allocation stack trace.\n",
 			mSweepInfo.mLeakCount, (mSweepInfo.mLeakCount != 1) ? "s" : "");
 		gDbgErrorString = errorStr;
-		gDbgErrorString += "\n";
 
 		int passLeakCount = 0;
 
@@ -438,26 +453,44 @@ void BFGC::RawShutdown()
 			if (rawLeak.mRawAllocData->mType != NULL)
 				typeName = rawLeak.mRawAllocData->mType->GetFullName() + "*";
 			else if (rawLeak.mRawAllocData == &sObjectAllocData)
-				typeName = "System.Object";			
+			{
+				bf::System::Type* objType = TryGetObjectType(rawLeak.mDataPtr);
+				if (objType != NULL)
+				{
+					typeName = objType->GetFullName() + "*";
+				}
+				else
+				{
+					typeName = "System.Object";
+				}
+			}
 			else
 				typeName = "uint8*";
-			errorStr += "\x1";
 			String leakStr = StrFormat("(%s)0x%@", typeName.c_str(), rawLeak.mDataPtr);
 			if (rawLeak.mDataCount > 1)
 				leakStr += StrFormat(",%d", rawLeak.mDataCount);
 
-			errorStr += StrFormat("LEAK\t%s\n", leakStr.c_str());
+			String leakExpr;
+			if (rawLeak.mRawAllocData == &sObjectAllocData)
+				leakExpr = StrFormat("(System.Object)0x%p", rawLeak.mDataPtr);
+			else
+			{
+				leakExpr = StrFormat("(%s)0x%p", typeName.c_str(), rawLeak.mDataPtr);
+				if (rawLeak.mDataCount > 1)
+					leakExpr += StrFormat(",%d", rawLeak.mDataCount);
+			}
+
+			errorStr += "\x1";
+			errorStr += StrFormat("LEAK\t%s\n", leakExpr.c_str());
 			errorStr += StrFormat("   %s\n", leakStr.c_str());
 
 			if (rawLeak.mStackTraceCount > 0)
 			{
+				String stackExpr = StrFormat("(System.CallStackList)0x%p, count=%d, na",
+					rawLeak.mStackTracePtr, rawLeak.mStackTraceCount);
 				errorStr += "\x1";
-				errorStr += StrFormat("LEAK\t(System.CallStackAddr*)0x%@", rawLeak.mStackTracePtr);
-				if (rawLeak.mStackTraceCount == 1)
-					errorStr += StrFormat(", nm");
-				else
-					errorStr += StrFormat(", %d, na", rawLeak.mStackTraceCount);
-				errorStr += StrFormat("\n    [AllocStackTrace]\n");
+				errorStr += StrFormat("LEAK\t%s\n", stackExpr.c_str());
+				errorStr += StrFormat("    [AllocStackTrace]\n");
 			}
 
 			if (gDbgErrorString.length() < 256)
