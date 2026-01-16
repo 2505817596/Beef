@@ -2716,8 +2716,6 @@ BfFileInstance* BfModule::GetFileFromNode(BfAstNode* astNode)
 			return bfFileInstance;
 		}
 
-		int slashPos = (int)bfParser->mFileName.LastIndexOf(DIR_SEP_CHAR);
-
 		auto bfFileInstance = new BfFileInstance();
 		*fileInstancePtr = bfFileInstance;
 		*namedFileInstancePtr = bfFileInstance;
@@ -2730,14 +2728,86 @@ BfFileInstance* BfModule::GetFileFromNode(BfAstNode* astNode)
 		if ((mBfIRBuilder != NULL) && (mBfIRBuilder->DbgHasLineInfo()))
 		{
 			String fileName = bfParser->mFileName;
+			bool isWasm = (mCompiler != NULL) &&
+				((mCompiler->mOptions.mTargetTriple.StartsWith("wasm32")) ||
+				 (mCompiler->mOptions.mTargetTriple.StartsWith("wasm64")));
 
-			for (int i = 0; i < (int)fileName.length(); i++)
+			if (isWasm)
 			{
-				if (fileName[i] == DIR_SEP_CHAR_ALT)
-					fileName[i] = DIR_SEP_CHAR;
-			}
+				for (int i = 0; i < (int)fileName.length(); i++)
+				{
+					if ((fileName[i] == DIR_SEP_CHAR) || (fileName[i] == DIR_SEP_CHAR_ALT))
+						fileName[i] = '/';
+				}
 
-			bfFileInstance->mDIFile = mBfIRBuilder->DbgCreateFile(fileName.Substring(slashPos + 1), fileName.Substring(0, BF_MAX(slashPos, 0)), bfParser->mMD5Hash);
+				String relPath;
+				int beefLibsPos = (int)fileName.IndexOf("BeefLibs/", true);
+				if (beefLibsPos >= 0)
+				{
+					relPath = fileName.Substring(beefLibsPos);
+				}
+				else
+				{
+					String projectDir;
+					if ((mProject != NULL) && (!mProject->mDirectory.empty()))
+					{
+						projectDir = mProject->mDirectory;
+						for (int i = 0; i < (int)projectDir.length(); i++)
+						{
+							if ((projectDir[i] == DIR_SEP_CHAR) || (projectDir[i] == DIR_SEP_CHAR_ALT))
+								projectDir[i] = '/';
+						}
+						if (!projectDir.empty() && (projectDir[projectDir.length() - 1] != '/'))
+							projectDir += '/';
+					}
+
+					if ((!projectDir.empty()) && (fileName.StartsWith(projectDir, StringImpl::CompareKind_OrdinalIgnoreCase)))
+					{
+						relPath = fileName.Substring((int)projectDir.length());
+					}
+					else
+					{
+						int relStart = 0;
+						if ((fileName.length() > 1) && (fileName[1] == ':'))
+						{
+							relStart = 2;
+							if ((relStart < (int)fileName.length()) && (fileName[relStart] == '/'))
+								relStart++;
+						}
+						while ((relStart < (int)fileName.length()) && (fileName[relStart] == '/'))
+							relStart++;
+
+						relPath = fileName.Substring(relStart);
+					}
+				}
+
+				int relSlashPos = (int)relPath.LastIndexOf('/');
+				if (relSlashPos >= 0)
+				{
+					bfFileInstance->mDIFile = mBfIRBuilder->DbgCreateFile(
+						relPath.Substring(relSlashPos + 1),
+						relPath.Substring(0, relSlashPos),
+						bfParser->mMD5Hash);
+				}
+				else
+				{
+					bfFileInstance->mDIFile = mBfIRBuilder->DbgCreateFile(relPath, ".", bfParser->mMD5Hash);
+				}
+			}
+			else
+			{
+				for (int i = 0; i < (int)fileName.length(); i++)
+				{
+					if (fileName[i] == DIR_SEP_CHAR_ALT)
+						fileName[i] = DIR_SEP_CHAR;
+				}
+
+				int slashPos = (int)fileName.LastIndexOf(DIR_SEP_CHAR);
+				bfFileInstance->mDIFile = mBfIRBuilder->DbgCreateFile(
+					fileName.Substring(slashPos + 1),
+					fileName.Substring(0, BF_MAX(slashPos, 0)),
+					bfParser->mMD5Hash);
+			}
 		}
 		return bfFileInstance;
 	}
