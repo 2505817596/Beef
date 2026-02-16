@@ -497,6 +497,8 @@ static BfpFileAttributes FileAttributes_WinToBFP(uint32 fileAttributes)
 		attrs = (BfpFileAttributes)(attrs | BfpFileAttribute_Archive);
 	if ((fileAttributes & FILE_ATTRIBUTE_READONLY) != 0)
 		attrs = (BfpFileAttributes)(attrs | BfpFileAttribute_ReadOnly);
+	if ((fileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+		attrs = (BfpFileAttributes)(attrs | BfpFileAttribute_SymLink);
 	return attrs;
 }
 

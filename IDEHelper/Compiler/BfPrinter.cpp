@@ -1986,6 +1986,16 @@ void BfPrinter::Visit(BfLambdaBindExpression* lambdaBindExpr)
 			VisitChildNoRef(lambdaBindExpr->mCommas.GetSafe(i - 1));
 			ExpectSpace();
 		}
+		if (auto paramAttrs = lambdaBindExpr->mParamAttributes.GetSafe(i))
+		{
+			VisitChild(paramAttrs);
+			ExpectSpace();
+		}
+		if (auto paramTypeRef = lambdaBindExpr->mParamTypeRefs.GetSafe(i))
+		{
+			VisitChild(paramTypeRef);
+			ExpectSpace();
+		}
 		VisitChild(lambdaBindExpr->mParams[i]);
 	}
 	VisitChild(lambdaBindExpr->mCloseParen);

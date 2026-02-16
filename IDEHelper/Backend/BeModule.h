@@ -348,8 +348,8 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mType->HashReference(hashCtx);
-		mTarget->HashReference(hashCtx);
+		HashRef(hashCtx, mType);
+		HashRef(hashCtx, mTarget);
 	}
 
 	virtual void GetData(BeConstData& data) override
@@ -369,7 +369,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mTarget->HashReference(hashCtx);
+		HashRef(hashCtx, mTarget);
 		hashCtx.Mixin(mIdx0);
 	}
 };
@@ -386,7 +386,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mTarget->HashReference(hashCtx);
+		HashRef(hashCtx, mTarget);
 		hashCtx.Mixin(mIdx0);
 		hashCtx.Mixin(mIdx1);
 	}
@@ -403,7 +403,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mTarget->HashReference(hashCtx);
+		HashRef(hashCtx, mTarget);
 		hashCtx.Mixin(mIdx0);
 	}
 };
@@ -423,7 +423,7 @@ public:
 		hashCtx.Mixin(mType);
 		hashCtx.Mixin(mMemberValues.size());
 		for (auto member : mMemberValues)
-			member->HashReference(hashCtx);
+			HashRef(hashCtx, member);
 	}
 };
 
@@ -489,7 +489,7 @@ public:
 		hashCtx.Mixin(TypeId);
 		hashCtx.MixinStr(mName);
 		if (mInitializer != NULL)
-			mInitializer->HashReference(hashCtx);
+			HashRef(hashCtx, mInitializer);
 		hashCtx.Mixin(mLinkageType);
 		hashCtx.Mixin(mStorageKind);
 		hashCtx.Mixin(mIsConstant);
@@ -708,7 +708,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mType->HashReference(hashCtx);
+		HashRef(hashCtx, mType);
 	}
 };
 
@@ -725,7 +725,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mAggVal->HashReference(hashCtx);
+		HashRef(hashCtx, mAggVal);
 		hashCtx.Mixin(mIdx);
 	}
 };
@@ -744,8 +744,8 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mAggVal->HashReference(hashCtx);
-		mMemberVal->HashReference(hashCtx);
+		HashRef(hashCtx, mAggVal);
+		HashRef(hashCtx, mMemberVal);
 		hashCtx.Mixin(mIdx);
 	}
 };
@@ -765,8 +765,8 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
-		mToType->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
+		HashRef(hashCtx, mToType);
 		hashCtx.Mixin(mValSigned);
 		hashCtx.Mixin(mToSigned);
 	}
@@ -785,8 +785,8 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
-		mToType->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
+		HashRef(hashCtx, mToType);
 	}
 };
 
@@ -801,7 +801,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
 	}
 };
 
@@ -816,7 +816,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
 	}
 };
 
@@ -861,8 +861,8 @@ public:
 		hashCtx.Mixin(TypeId);
 		hashCtx.Mixin(mOpKind);
 		hashCtx.Mixin(mOverflowCheckKind);
-		mLHS->HashReference(hashCtx);
-		mRHS->HashReference(hashCtx);
+		HashRef(hashCtx, mLHS);
+		HashRef(hashCtx, mRHS);
 	}
 };
 
@@ -905,8 +905,8 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mLHS->HashReference(hashCtx);
-		mRHS->HashReference(hashCtx);
+		HashRef(hashCtx, mLHS);
+		HashRef(hashCtx, mRHS);
 		hashCtx.Mixin(mCmpKind);
 	}
 };
@@ -921,7 +921,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
 	}
 };
 
@@ -942,9 +942,9 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mType->HashReference(hashCtx);
+		HashRef(hashCtx, mType);
 		if (mArraySize != NULL)
-			mArraySize->HashReference(hashCtx);
+			HashRef(hashCtx, mArraySize);
 		hashCtx.Mixin(mAlign);
 		hashCtx.Mixin(mNoChkStk);
 		hashCtx.Mixin(mForceMem);
@@ -961,7 +961,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mPtr->HashReference(hashCtx);
+		HashRef(hashCtx, mPtr);
 	}
 
 	virtual BeType* GetType() override
@@ -980,7 +980,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mPtr->HashReference(hashCtx);
+		HashRef(hashCtx, mPtr);
 	}
 };
 
@@ -994,7 +994,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mPtr->HashReference(hashCtx);
+		HashRef(hashCtx, mPtr);
 	}
 };
 
@@ -1008,7 +1008,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mPtr->HashReference(hashCtx);
+		HashRef(hashCtx, mPtr);
 	}
 };
 
@@ -1023,8 +1023,8 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mFenceBlock->HashReference(hashCtx);
-		mPtr->HashReference(hashCtx);
+		HashRef(hashCtx, mFenceBlock);
+		HashRef(hashCtx, mPtr);
 	}
 };
 
@@ -1038,7 +1038,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mPtr->HashReference(hashCtx);
+		HashRef(hashCtx, mPtr);
 	}
 };
 
@@ -1065,7 +1065,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
 	}
 };
 
@@ -1080,7 +1080,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mScopeStart->HashReference(hashCtx);
+		HashRef(hashCtx, mScopeStart);
 		hashCtx.Mixin(mIsSoft);
 	}
 };
@@ -1099,7 +1099,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mTarget->HashReference(hashCtx);
+		HashRef(hashCtx, mTarget);
 	}
 };
 
@@ -1115,8 +1115,8 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mVal->HashReference(hashCtx);
-		mPtr->HashReference(hashCtx);
+		HashRef(hashCtx, mVal);
+		HashRef(hashCtx, mPtr);
 	}
 };
 
@@ -1130,7 +1130,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mVal->HashReference(hashCtx);
+		HashRef(hashCtx, mVal);
 	}
 };
 
@@ -1147,9 +1147,9 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mAddr->HashReference(hashCtx);
-		mVal->HashReference(hashCtx);
-		mSize->HashReference(hashCtx);
+		HashRef(hashCtx, mAddr);
+		HashRef(hashCtx, mVal);
+		HashRef(hashCtx, mSize);
 		hashCtx.Mixin(mAlignment);
 	}
 };
@@ -1191,7 +1191,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mStackVal->HashReference(hashCtx);
+		HashRef(hashCtx, mStackVal);
 	}
 };
 
@@ -1209,10 +1209,10 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mPtr->HashReference(hashCtx);
-		mIdx0->HashReference(hashCtx);
+		HashRef(hashCtx, mPtr);
+		HashRef(hashCtx, mIdx0);
 		if (mIdx1 != NULL)
-			mIdx1->HashReference(hashCtx);
+			HashRef(hashCtx, mIdx1);
 	}
 };
 
@@ -1228,7 +1228,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mTargetBlock->HashReference(hashCtx);
+		HashRef(hashCtx, mTargetBlock);
 		hashCtx.Mixin(mNoCollapse);
 		hashCtx.Mixin(mIsFake);
 	}
@@ -1246,9 +1246,9 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mCond->HashReference(hashCtx);
-		mTrueBlock->HashReference(hashCtx);
-		mFalseBlock->HashReference(hashCtx);
+		HashRef(hashCtx, mCond);
+		HashRef(hashCtx, mTrueBlock);
+		HashRef(hashCtx, mFalseBlock);
 	}
 };
 
@@ -1263,8 +1263,8 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mBlock->HashReference(hashCtx);
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mBlock);
+		HashRef(hashCtx, mValue);
 	}
 };
 
@@ -1281,12 +1281,12 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mType->HashReference(hashCtx);
+		HashRef(hashCtx, mType);
 		hashCtx.Mixin(mIncoming.size());
 		for (auto incoming : mIncoming)
 		{
-			incoming->mBlock->HashReference(hashCtx);
-			incoming->mValue->HashReference(hashCtx);
+			HashRef(hashCtx, incoming->mBlock);
+			HashRef(hashCtx, incoming->mValue);
 		}
 	}
 };
@@ -1310,12 +1310,12 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
-		mDefaultBlock->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
+		HashRef(hashCtx, mDefaultBlock);
 		for (auto& caseVal : mCases)
 		{
-			caseVal.mValue->HashReference(hashCtx);
-			caseVal.mBlock->HashReference(hashCtx);
+			HashRef(hashCtx, caseVal.mValue);
+			HashRef(hashCtx, caseVal.mBlock);
 		}
 	}
 };
@@ -1331,7 +1331,7 @@ public:
 	{
 		hashCtx.Mixin(TypeId);
 		if (mRetValue != NULL)
-			mRetValue->HashReference(hashCtx);
+			HashRef(hashCtx, mRetValue);
 	}
 };
 
@@ -1393,11 +1393,11 @@ public:
 	{
 		hashCtx.Mixin(TypeId);
 		if (mInlineResult != NULL)
-			mInlineResult->HashReference(hashCtx);
-		mFunc->HashReference(hashCtx);
+			HashRef(hashCtx, mInlineResult);
+		HashRef(hashCtx, mFunc);
 		for (auto& arg : mArgs)
 		{
-			arg.mValue->HashReference(hashCtx);
+			HashRef(hashCtx, arg.mValue);
 			hashCtx.Mixin(arg.mStructRet);
 			hashCtx.Mixin(arg.mZExt);
 			hashCtx.Mixin(arg.mDereferenceableSize);
@@ -1495,7 +1495,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
 		hashCtx.Mixin(mTypeId);
 	}
 };
@@ -1519,7 +1519,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
 		hashCtx.Mixin(mVirtualTableIdx);
 	}
 };
@@ -1544,7 +1544,7 @@ public:
 	virtual void HashInst(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
 		hashCtx.Mixin(mIFaceTypeId);
 		hashCtx.Mixin(mMethodIdx);
 	}
@@ -1656,11 +1656,11 @@ public:
 		hashCtx.Mixin(mLine);
 		hashCtx.Mixin(mColumn);
 		if (mDbgScope != NULL)
-			mDbgScope->HashReference(hashCtx);
+			HashRef(hashCtx, mDbgScope);
 		else
 			hashCtx.Mixin(-1);
 		if (mDbgInlinedAt != NULL)
-			mDbgInlinedAt->HashReference(hashCtx);
+			HashRef(hashCtx, mDbgInlinedAt);
 	}
 };
 
@@ -1690,7 +1690,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mScope->HashReference(hashCtx);
+		HashRef(hashCtx, mScope);
 		hashCtx.MixinStr(mName);
 	}
 };
@@ -1787,7 +1787,7 @@ public:
 		hashCtx.Mixin(mSize);
 		hashCtx.Mixin(mAlign);
 		hashCtx.Mixin(mNumElements);
-		mElement->HashReference(hashCtx);
+		HashRef(hashCtx, mElement);
 	}
 };
 
@@ -1802,7 +1802,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mElement->HashReference(hashCtx);
+		HashRef(hashCtx, mElement);
 	}
 };
 
@@ -1817,7 +1817,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mElement->HashReference(hashCtx);
+		HashRef(hashCtx, mElement);
 	}
 };
 
@@ -1832,7 +1832,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mElement->HashReference(hashCtx);
+		HashRef(hashCtx, mElement);
 	}
 };
 
@@ -1847,7 +1847,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mElement->HashReference(hashCtx);
+		HashRef(hashCtx, mElement);
 	}
 };
 
@@ -1862,7 +1862,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mBaseType->HashReference(hashCtx);
+		HashRef(hashCtx, mBaseType);
 	}
 };
 
@@ -1893,12 +1893,12 @@ public:
 	{
 		hashCtx.Mixin(TypeId);
 		hashCtx.MixinStr(mName);
-		mType->HashReference(hashCtx);
+		HashRef(hashCtx, mType);
 		hashCtx.Mixin(mFlags);
 		hashCtx.Mixin(mOffset);
 		hashCtx.Mixin(mIsStatic);
 		if (mStaticValue != NULL)
-			mStaticValue->HashReference(hashCtx);
+			HashRef(hashCtx, mStaticValue);
 	}
 };
 
@@ -1916,10 +1916,10 @@ public:
 	{
 		hashCtx.Mixin(TypeId);
 		if (mReturnType != NULL)
-			mReturnType->HashReference(hashCtx);
+			HashRef(hashCtx, mReturnType);
 		hashCtx.Mixin(mParams.size());
 		for (auto param : mParams)
-			param->HashReference(hashCtx);
+			HashRef(hashCtx, param);
 	}
 };
 
@@ -2033,16 +2033,16 @@ public:
 	{
 		hashCtx.Mixin(TypeId);
 		hashCtx.MixinStr(mName);
-		mType->HashReference(hashCtx);
+		HashRef(hashCtx, mType);
 		if (mValue != NULL)
-			mValue->HashReference(hashCtx);
+			HashRef(hashCtx, mValue);
 		hashCtx.Mixin(mParamNum);
 		hashCtx.Mixin(mInitType);
 		hashCtx.Mixin(mPendingInitType);
 		if (mScope != NULL)
-			mScope->HashReference(hashCtx);
+			HashRef(hashCtx, mScope);
 		if (mDeclDbgLoc != NULL)
-			mDeclDbgLoc->HashReference(hashCtx);
+			HashRef(hashCtx, mDeclDbgLoc);
 
 		// The others only get filled in after generation -- not part of hash
 	}
@@ -2156,7 +2156,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(TypeId);
-		mScope->HashReference(hashCtx);
+		HashRef(hashCtx, mScope);
 	}
 };
 
@@ -2235,13 +2235,13 @@ public:
 
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
-		mScope->HashReference(hashCtx);
+		HashRef(hashCtx, mScope);
 		hashCtx.MixinStr(mName);
 		if (mElementType != NULL)
-			mElementType->HashReference(hashCtx);
+			HashRef(hashCtx, mElementType);
 		hashCtx.Mixin(mIsFullyDefined);
 		for (auto member : mMembers)
-			member->HashReference(hashCtx);
+			HashRef(hashCtx, member);
 	}
 };
 
@@ -2289,14 +2289,14 @@ public:
 		hashCtx.MixinStr(mName);
 		hashCtx.MixinStr(mLinkageName);
 		if (mFile != NULL)
-			mFile->HashReference(hashCtx);
+			HashRef(hashCtx, mFile);
 		hashCtx.Mixin(mLineNum);
-		mType->HashReference(hashCtx);
+		HashRef(hashCtx, mType);
 		hashCtx.Mixin(mIsLocalToUnit);
 		if (mValue != NULL)
-			mValue->HashReference(hashCtx);
+			HashRef(hashCtx, mValue);
 		if (mDecl != NULL)
-			mDecl->HashReference(hashCtx);
+			HashRef(hashCtx, mDecl);
 	}
 };
 

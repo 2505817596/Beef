@@ -35,6 +35,105 @@ using namespace llvm;
 
 //////////////////////////////////////////////////////////////////////////
 
+static bool LambdaHasAnyParamTypes(BfLambdaBindExpression* lambdaBindExpr)
+{
+	for (int paramIdx = 0; paramIdx < (int)lambdaBindExpr->mParamTypeRefs.size(); paramIdx++)
+	{
+		if (lambdaBindExpr->mParamTypeRefs[paramIdx] != NULL)
+			return true;
+	}
+	return false;
+}
+
+static bool LambdaHasAllParamTypes(BfLambdaBindExpression* lambdaBindExpr)
+{
+	for (int paramIdx = 0; paramIdx < (int)lambdaBindExpr->mParams.size(); paramIdx++)
+	{
+		if (lambdaBindExpr->mParamTypeRefs.GetSafe(paramIdx) == NULL)
+			return false;
+	}
+	return true;
+}
+
+static bool CheckLambdaParamTypes(BfModule* module, BfLambdaBindExpression* lambdaBindExpr, BfMethodInstance* methodInstance, bool emitErrors)
+{
+	int checkCount = BF_MIN((int)lambdaBindExpr->mParams.size(), methodInstance->GetParamCount());
+	for (int paramIdx = 0; paramIdx < checkCount; paramIdx++)
+	{
+		auto typeRef = lambdaBindExpr->mParamTypeRefs.GetSafe(paramIdx);
+		if (typeRef == NULL)
+			continue;
+
+		auto paramType = module->ResolveTypeRef(typeRef, BfPopulateType_Declaration, BfResolveTypeRefFlag_AllowRef);
+		if (paramType == NULL)
+		{
+			if (emitErrors)
+				module->Fail("Unable to resolve lambda parameter type", typeRef);
+			return false;
+		}
+
+		auto methodParamType = methodInstance->GetParamType(paramIdx);
+		if (paramType != methodParamType)
+		{
+			if (emitErrors)
+			{
+				module->Fail(StrFormat("Lambda parameter type '%s' does not match delegate parameter type '%s'",
+					module->TypeToString(paramType).c_str(), module->TypeToString(methodParamType).c_str()), typeRef);
+			}
+			return false;
+		}
+	}
+	return true;
+}
+
+static BfTypeInstance* CreateAnonymousDelegateType(BfModule* module, BfLambdaBindExpression* lambdaBindExpr, const Array<BfType*>& paramTypes, BfType* returnType, bool forceReflect)
+{
+	BfAstAllocator alloc;
+	alloc.mSourceData = lambdaBindExpr->GetSourceData();
+
+	auto delegateTypeRef = alloc.Alloc<BfDelegateTypeRef>();
+	auto delegateToken = alloc.Alloc<BfTokenNode>();
+	delegateToken->mToken = BfToken_Delegate;
+	delegateTypeRef->mTypeToken = delegateToken;
+
+	auto returnTypeRef = alloc.Alloc<BfDirectTypeReference>();
+	returnTypeRef->Init(returnType);
+	delegateTypeRef->mReturnType = returnTypeRef;
+
+	{
+		BfDeferredAstSizedArray<BfParameterDeclaration*> paramDecls(delegateTypeRef->mParams, &alloc);
+		for (int paramIdx = 0; paramIdx < (int)paramTypes.size(); paramIdx++)
+		{
+			auto paramDecl = alloc.Alloc<BfParameterDeclaration>();
+			auto paramTypeRef = alloc.Alloc<BfDirectTypeReference>();
+			auto paramType = paramTypes[paramIdx];
+			if (paramType == NULL)
+				paramType = module->GetPrimitiveType(BfTypeCode_Var);
+			paramTypeRef->Init(paramType);
+			paramDecl->mTypeRef = paramTypeRef;
+			if (paramIdx < (int)lambdaBindExpr->mParams.size())
+				paramDecl->mNameNode = lambdaBindExpr->mParams[paramIdx];
+			if (paramIdx < (int)lambdaBindExpr->mParamAttributes.size())
+				paramDecl->mAttributes = lambdaBindExpr->mParamAttributes[paramIdx];
+			paramDecls.push_back(paramDecl);
+		}
+	}
+
+	auto delegateType = module->ResolveTypeRef(delegateTypeRef, BfPopulateType_Declaration);
+	if (delegateType == NULL)
+		return NULL;
+	auto delegateTypeInst = delegateType->ToTypeInstance();
+	if ((delegateTypeInst != NULL) && (forceReflect) &&
+		(module->mProject != NULL) && (delegateTypeInst->mTypeDef->mProject == module->mProject))
+	{
+		delegateTypeInst->mAlwaysIncludeFlags = (BfAlwaysIncludeFlags)(delegateTypeInst->mAlwaysIncludeFlags |
+			BfAlwaysIncludeFlag_Type | BfAlwaysIncludeFlag_IncludeAllMethods);
+	}
+	return delegateTypeInst;
+}
+
+//////////////////////////////////////////////////////////////////////////
+
 DeferredTupleAssignData::~DeferredTupleAssignData()
 {
 	for (auto entry : mChildren)
@@ -1365,12 +1464,49 @@ BfTypedValue BfMethodMatcher::ResolveArgTypedValue(BfResolvedArg& resolvedArg, B
 
 		if ((checkType != NULL) && (checkType->IsDelegate()))
 		{
+			auto checkTypeInst = checkType->ToTypeInstance();
+			if ((checkTypeInst != NULL) && (checkTypeInst->mTypeDef == mModule->mCompiler->mDelegateTypeDef))
+			{
+				if (!lambdaBindExpr->mParams.empty())
+				{
+					Array<BfType*> lambdaParamTypes;
+					bool paramTypeFailed = false;
+					for (int paramIdx = 0; paramIdx < (int)lambdaBindExpr->mParams.size(); paramIdx++)
+					{
+						auto paramTypeRef = lambdaBindExpr->mParamTypeRefs.GetSafe(paramIdx);
+						if (paramTypeRef == NULL)
+						{
+							lambdaParamTypes.Add(mModule->GetPrimitiveType(BfTypeCode_Var));
+							continue;
+						}
+						auto paramType = mModule->ResolveTypeRef(paramTypeRef, BfPopulateType_Declaration, BfResolveTypeRefFlag_AllowRef);
+						if (paramType == NULL)
+						{
+							paramTypeFailed = true;
+							break;
+						}
+						lambdaParamTypes.Add(paramType);
+					}
+
+					if (!paramTypeFailed)
+					{
+						auto anonDelegateType = CreateAnonymousDelegateType(mModule, lambdaBindExpr, lambdaParamTypes, mModule->GetPrimitiveType(BfTypeCode_None), false);
+						if (anonDelegateType != NULL)
+							argTypedValue = mModule->GetFakeTypedValue(anonDelegateType);
+					}
+				}
+			}
+
 			BfMethodInstance* methodInstance = mModule->GetRawMethodInstanceAtIdx(checkType->ToTypeInstance(), 0, "Invoke");
 			if (methodInstance != NULL)
 			{
 				if (methodInstance->GetParamCount() == (int)lambdaBindExpr->mParams.size())
 				{
-					if (lambdaBindExpr->mNewToken == NULL)
+					bool paramTypesMatch = true;
+					if (LambdaHasAnyParamTypes(lambdaBindExpr))
+						paramTypesMatch = CheckLambdaParamTypes(mModule, lambdaBindExpr, methodInstance, false);
+
+					if ((paramTypesMatch) && (lambdaBindExpr->mNewToken == NULL))
 					{
 						if (!resolvedArg.mTypedValue)
 						{
@@ -1379,9 +1515,40 @@ BfTypedValue BfMethodMatcher::ResolveArgTypedValue(BfResolvedArg& resolvedArg, B
 						}
 						argTypedValue = resolvedArg.mTypedValue;
 					}
-					else
+					else if (paramTypesMatch)
 						argTypedValue = BfTypedValue(BfTypedValueKind_UntypedValue);
 						//argTypedValue = BfTypedValue(mModule->mBfIRBuilder->GetFakeVal(), checkType);
+				}
+			}
+		}
+		else if ((checkType != NULL) && (!checkType->IsDelegateOrFunction()))
+		{
+			if (LambdaHasAllParamTypes(lambdaBindExpr))
+			{
+				Array<BfType*> lambdaParamTypes;
+				bool paramTypeFailed = false;
+				for (int paramIdx = 0; paramIdx < (int)lambdaBindExpr->mParams.size(); paramIdx++)
+				{
+					auto paramTypeRef = lambdaBindExpr->mParamTypeRefs.GetSafe(paramIdx);
+					if (paramTypeRef == NULL)
+					{
+						paramTypeFailed = true;
+						break;
+					}
+					auto paramType = mModule->ResolveTypeRef(paramTypeRef, BfPopulateType_Declaration, BfResolveTypeRefFlag_AllowRef);
+					if (paramType == NULL)
+					{
+						paramTypeFailed = true;
+						break;
+					}
+					lambdaParamTypes.Add(paramType);
+				}
+
+				if (!paramTypeFailed)
+				{
+					auto anonDelegateType = CreateAnonymousDelegateType(mModule, lambdaBindExpr, lambdaParamTypes, mModule->GetPrimitiveType(BfTypeCode_None), false);
+					if (anonDelegateType != NULL)
+						argTypedValue = mModule->GetFakeTypedValue(anonDelegateType);
 				}
 			}
 		}
@@ -1402,6 +1569,12 @@ BfTypedValue BfMethodMatcher::ResolveArgTypedValue(BfResolvedArg& resolvedArg, B
 
 					if (methodInstance->mParams.size() != (int)lambdaBindExpr->mParams.size())
 						isValid = false;
+
+					if ((isValid) && (LambdaHasAnyParamTypes(lambdaBindExpr)))
+					{
+						if (!CheckLambdaParamTypes(mModule, lambdaBindExpr, methodInstance, false))
+							isValid = false;
+					}
 
 					for (auto& param : methodInstance->mParams)
 					{
@@ -14618,6 +14791,11 @@ void BfExprEvaluator::Visit(BfDelegateBindExpression* delegateBindExpr)
 	MatchConstructor(delegateBindExpr, delegateBindExpr, mResult, useTypeInstance, resolvedArgs, false, BfMethodGenericArguments(), BfAllowAppendKind_No);
 
 	auto baseDelegateType = VerifyBaseDelegateType(delegateTypeInstance->mBaseType);
+	if (baseDelegateType == NULL)
+	{
+		mModule->Fail("Invalid delegate type", delegateBindExpr);
+		return;
+	}
 	auto baseDelegate = mModule->mBfIRBuilder->CreateBitCast(mResult.mValue, mModule->mBfIRBuilder->MapType(baseDelegateType, BfIRPopulateType_Full));
 
 	// >> delegate.mTarget = bindResult.mTarget
@@ -14722,24 +14900,123 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 
 	BfTypeInstance* delegateTypeInstance = NULL;
 	BfMethodInstance* invokeMethodInstance = NULL;
+	auto createAnonymousDelegateType = [&](bool forceReflect, bool allowMissingParamTypes, bool* outUsedImplicitParamTypes) -> BfTypeInstance*
+	{
+		if ((!allowMissingParamTypes) && (!LambdaHasAllParamTypes(lambdaBindExpr)))
+			return NULL;
+
+		Array<BfType*> lambdaParamTypes;
+		bool usedImplicitParamTypes = false;
+		bool paramTypeFailed = false;
+		for (int paramIdx = 0; paramIdx < (int)lambdaBindExpr->mParams.size(); paramIdx++)
+		{
+			auto paramTypeRef = lambdaBindExpr->mParamTypeRefs.GetSafe(paramIdx);
+			if (paramTypeRef == NULL)
+			{
+				if (allowMissingParamTypes)
+				{
+					usedImplicitParamTypes = true;
+					lambdaParamTypes.Add(mModule->GetPrimitiveType(BfTypeCode_Var));
+					continue;
+				}
+				paramTypeFailed = true;
+				break;
+			}
+			auto paramType = mModule->ResolveTypeRef(paramTypeRef, BfPopulateType_Declaration, BfResolveTypeRefFlag_AllowRef);
+			if (paramType == NULL)
+			{
+				if (allowMissingParamTypes)
+				{
+					usedImplicitParamTypes = true;
+					lambdaParamTypes.Add(mModule->GetPrimitiveType(BfTypeCode_Var));
+					continue;
+				}
+				paramTypeFailed = true;
+				break;
+			}
+			lambdaParamTypes.Add(paramType);
+		}
+
+		if (paramTypeFailed)
+			return NULL;
+
+		BfType* inferredReturnType = NULL;
+		if (!isInferReturnType)
+		{
+			auto tempDelegateTypeInst = CreateAnonymousDelegateType(mModule, lambdaBindExpr, lambdaParamTypes, mModule->GetPrimitiveType(BfTypeCode_Var), false);
+			if (tempDelegateTypeInst != NULL)
+			{
+				auto inferredReturn = mModule->CreateValueFromExpression(lambdaBindExpr, tempDelegateTypeInst,
+					(BfEvalExprFlags)((mBfEvalExprFlags & BfEvalExprFlags_InheritFlags) | BfEvalExprFlags_NoCast | BfEvalExprFlags_InferReturnType | BfEvalExprFlags_NoAutoComplete));
+				inferredReturnType = inferredReturn.mType;
+			}
+			if (inferredReturnType == NULL)
+				inferredReturnType = mModule->GetPrimitiveType(BfTypeCode_None);
+		}
+		else
+		{
+			inferredReturnType = mModule->GetPrimitiveType(BfTypeCode_Var);
+		}
+
+		auto anonDelegateTypeInst = CreateAnonymousDelegateType(mModule, lambdaBindExpr, lambdaParamTypes, inferredReturnType, forceReflect);
+		if (outUsedImplicitParamTypes != NULL)
+			*outUsedImplicitParamTypes = usedImplicitParamTypes;
+		if (anonDelegateTypeInst != NULL)
+			invokeMethodInstance = mModule->GetRawMethodInstanceAtIdx(anonDelegateTypeInst, 0, "Invoke");
+		return anonDelegateTypeInst;
+	};
+
 	if (mExpectingType == NULL)
 	{
-		mModule->Fail("Cannot infer delegate type", lambdaBindExpr);
-		delegateTypeInstance = mModule->ResolveTypeDef(mModule->mCompiler->mActionTypeDef)->ToTypeInstance();
+		delegateTypeInstance = createAnonymousDelegateType(!isInferReturnType, false, NULL);
+		if (delegateTypeInstance == NULL)
+		{
+			mModule->Fail("Cannot infer delegate type", lambdaBindExpr);
+			delegateTypeInstance = mModule->ResolveTypeDef(mModule->mCompiler->mActionTypeDef)->ToTypeInstance();
+		}
 	}
 	else
 	{
 		delegateTypeInstance = mExpectingType->ToTypeInstance();
-		if ((delegateTypeInstance == NULL) ||
+		bool isBaseDelegateType = (delegateTypeInstance != NULL) && (delegateTypeInstance->mTypeDef == mModule->mCompiler->mDelegateTypeDef);
+		bool isBaseFunctionType = (delegateTypeInstance != NULL) && (delegateTypeInstance->mTypeDef == mModule->mCompiler->mFunctionTypeDef);
+		if (isBaseDelegateType || isBaseFunctionType)
+		{
+			bool usedImplicitParamTypes = false;
+			delegateTypeInstance = createAnonymousDelegateType(!isInferReturnType, true, &usedImplicitParamTypes);
+			if (delegateTypeInstance == NULL)
+			{
+				if (lambdaBindExpr->mFatArrowToken != NULL)
+					mModule->Fail("Cannot infer delegate type", lambdaBindExpr->mFatArrowToken);
+				delegateTypeInstance = mModule->ResolveTypeDef(mModule->mCompiler->mActionTypeDef)->ToTypeInstance();
+			}
+		}
+		else if ((delegateTypeInstance == NULL) ||
 			((!delegateTypeInstance->mTypeDef->mIsDelegate) && (!delegateTypeInstance->mTypeDef->mIsFunction)))
 		{
-			if (lambdaBindExpr->mFatArrowToken != NULL)
-				mModule->Fail("Can only bind lambdas to delegate types", lambdaBindExpr->mFatArrowToken);
-			delegateTypeInstance = mModule->ResolveTypeDef(mModule->mCompiler->mActionTypeDef)->ToTypeInstance();
+			delegateTypeInstance = createAnonymousDelegateType(!isInferReturnType, false, NULL);
+			if (delegateTypeInstance == NULL)
+			{
+				if (lambdaBindExpr->mFatArrowToken != NULL)
+					mModule->Fail("Cannot infer delegate type", lambdaBindExpr->mFatArrowToken);
+				delegateTypeInstance = mModule->ResolveTypeDef(mModule->mCompiler->mActionTypeDef)->ToTypeInstance();
+			}
 		}
 		else
 		{
 			invokeMethodInstance = mModule->GetRawMethodInstanceAtIdx(delegateTypeInstance, 0, "Invoke");
+			if ((invokeMethodInstance != NULL) && (invokeMethodInstance->GetParamCount() == 0) &&
+				(invokeMethodInstance->mReturnType != NULL) && (invokeMethodInstance->mReturnType->IsVar()) &&
+				(!lambdaBindExpr->mParams.empty()))
+			{
+				// Upgrade untyped delegate (delegate var()) when lambda has params.
+				auto anonDelegateTypeInst = createAnonymousDelegateType(!isInferReturnType, true, NULL);
+				if (anonDelegateTypeInst != NULL)
+				{
+					delegateTypeInstance = anonDelegateTypeInst;
+					invokeMethodInstance = mModule->GetRawMethodInstanceAtIdx(delegateTypeInstance, 0, "Invoke");
+				}
+			}
 		}
 
 		isFunctionBind = delegateTypeInstance->mTypeDef->mIsFunction;
@@ -14759,6 +15036,19 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 
 	if (invokeMethodInstance != NULL)
 	{
+		bool usedImplicitParamTypes = false;
+		if ((invokeMethodInstance->GetParamCount() == 0) && (!lambdaBindExpr->mParams.empty()) &&
+			(invokeMethodInstance->mReturnType != NULL) && (invokeMethodInstance->mReturnType->IsVar()))
+		{
+			// Late fallback: if we're still on an untyped delegate, upgrade to an anonymous delegate using the lambda params.
+			auto anonDelegateTypeInst = createAnonymousDelegateType(!isInferReturnType, true, &usedImplicitParamTypes);
+			if (anonDelegateTypeInst != NULL)
+			{
+				delegateTypeInstance = anonDelegateTypeInst;
+				invokeMethodInstance = mModule->GetRawMethodInstanceAtIdx(delegateTypeInstance, 0, "Invoke");
+			}
+		}
+
 		if ((int)lambdaBindExpr->mParams.size() < invokeMethodInstance->GetParamCount())
 		{
 			BfAstNode* refNode = lambdaBindExpr->mCloseParen;
@@ -14773,6 +15063,10 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 			mModule->Fail(StrFormat("Too many parameters for delegate type '%s'. Expected %d fewer.",
 				mModule->TypeToString(delegateTypeInstance).c_str(), lambdaBindExpr->mParams.size() - invokeMethodInstance->GetParamCount()), refNode);
 		}
+
+		if ((LambdaHasAnyParamTypes(lambdaBindExpr)) && (!usedImplicitParamTypes) &&
+			(!CheckLambdaParamTypes(mModule, lambdaBindExpr, invokeMethodInstance, true)))
+			return NULL;
 	}
 
 	auto autoComplete = GetAutoComplete();
@@ -14857,7 +15151,76 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 						}
  					}
  				}
- 			}
+			}
+		}
+	}
+
+	if (autoComplete != NULL)
+	{
+		int cursorIdx = lambdaBindExpr->GetParser()->mCursorIdx;
+		for (int paramIdx = 0; paramIdx < (int)lambdaBindExpr->mParamTypeRefs.size(); paramIdx++)
+		{
+			if (auto paramTypeRef = lambdaBindExpr->mParamTypeRefs[paramIdx])
+				autoComplete->CheckTypeRef(paramTypeRef, false);
+			else if ((lambdaBindExpr->mNewToken != NULL) && (paramIdx < (int)lambdaBindExpr->mParams.size()))
+			{
+				auto paramNameNode = lambdaBindExpr->mParams[paramIdx];
+				if ((paramNameNode != NULL) && (autoComplete->IsAutocompleteNode(paramNameNode)))
+				{
+					autoComplete->CheckIdentifier(paramNameNode, false);
+				}
+				else if ((paramNameNode != NULL) && (cursorIdx != -1))
+				{
+					int paramStartIdx = lambdaBindExpr->mOpenParen->GetSrcEnd();
+					if (paramIdx > 0)
+					{
+						int commaIdx = paramIdx - 1;
+						if (commaIdx < (int)lambdaBindExpr->mCommas.size())
+						{
+							if (auto commaNode = lambdaBindExpr->mCommas[commaIdx])
+								paramStartIdx = commaNode->GetSrcEnd();
+						}
+					}
+					if (paramIdx < (int)lambdaBindExpr->mParamAttributes.size())
+					{
+						auto attrDirective = lambdaBindExpr->mParamAttributes[paramIdx];
+						while ((attrDirective != NULL) && (attrDirective->mNextAttribute != NULL))
+							attrDirective = attrDirective->mNextAttribute;
+						if (attrDirective != NULL)
+							paramStartIdx = attrDirective->GetSrcEnd();
+					}
+
+					int paramNameStartIdx = paramNameNode->GetSrcStart();
+					if ((cursorIdx >= paramStartIdx) && (cursorIdx <= paramNameStartIdx))
+					{
+						autoComplete->CheckIdentifier(NULL, false);
+						autoComplete->mInsertStartIdx = cursorIdx;
+						autoComplete->mInsertEndIdx = cursorIdx;
+					}
+				}
+			}
+		}
+		for (int attrIdx = 0; attrIdx < (int)lambdaBindExpr->mParamAttributes.size(); attrIdx++)
+		{
+			auto attrDirective = lambdaBindExpr->mParamAttributes[attrIdx];
+			while (attrDirective != NULL)
+			{
+				if (attrDirective->mAttributeTypeRef != NULL)
+					autoComplete->CheckAttributeTypeRef(attrDirective->mAttributeTypeRef);
+				attrDirective = attrDirective->mNextAttribute;
+			}
+		}
+	}
+
+	if (!lambdaBindExpr->mParamAttributes.IsEmpty())
+	{
+		for (int attrIdx = 0; attrIdx < (int)lambdaBindExpr->mParamAttributes.size(); attrIdx++)
+		{
+			auto attrDirective = lambdaBindExpr->mParamAttributes[attrIdx];
+			if (attrDirective == NULL)
+				continue;
+			BfCustomAttributes tempCustomAttributes;
+			mModule->GetCustomAttributes(&tempCustomAttributes, attrDirective, BfAttributeTargets_Parameter, BfGetCustomAttributesFlags_KeepConstsInModule);
 		}
 	}
 
@@ -15062,6 +15425,8 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 			{				
 				//TODO: Not always correct if we have a 'params'
 				paramDef->mParamDeclaration->mNameNode = lambdaBindExpr->mParams[paramIdx];
+				if (paramIdx < (int)lambdaBindExpr->mParamAttributes.size())
+					paramDef->mParamDeclaration->mAttributes = lambdaBindExpr->mParamAttributes[paramIdx];
 				paramDef->mName = paramDef->mParamDeclaration->mNameNode->ToString();
 			}
 			else
@@ -15429,16 +15794,47 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 
 	bool hasCapture = false;
 
- 	BfMethodInstanceGroup methodInstanceGroup;
- 	methodInstanceGroup.mOwner = mModule->mCurTypeInstance;
- 	methodInstanceGroup.mOnDemandKind = BfMethodOnDemandKind_AlwaysInclude;
+ 	auto methodInstanceGroup = new BfMethodInstanceGroup();
+ 	methodInstanceGroup->mOwner = mModule->mCurTypeInstance;
+ 	methodInstanceGroup->mOnDemandKind = BfMethodOnDemandKind_AlwaysInclude;
 
 	BfMethodInstance* methodInstance = new BfMethodInstance();
-	methodInstance->mMethodInstanceGroup = &methodInstanceGroup;
+	methodInstanceGroup->mDefault = methodInstance;
+	methodInstance->mMethodInstanceGroup = methodInstanceGroup;
 	methodInstance->GetMethodInfoEx()->mClosureInstanceInfo = closureInstanceInfo;
 	if (invokeMethodInstance != NULL)
 		methodInstance->mParams = invokeMethodInstance->mParams;
 	methodInstance->mIsClosure = true;
+
+	if (!lambdaBindExpr->mParamAttributes.IsEmpty())
+	{
+		auto methodInfoEx = methodInstance->GetMethodInfoEx();
+		if (methodInfoEx->mMethodCustomAttributes == NULL)
+			methodInfoEx->mMethodCustomAttributes = new BfMethodCustomAttributes();
+		if (methodInfoEx->mMethodCustomAttributes->mParamCustomAttributes.size() == 0)
+		{
+			int paramCount = methodInstance->GetParamCount();
+			for (int paramIdx = 0; paramIdx < paramCount; paramIdx++)
+			{
+				BfParameterDef* paramDef = NULL;
+				auto methodParam = &methodInstance->mParams[paramIdx];
+				if ((methodParam->mParamDefIdx >= 0) && (methodParam->mParamDefIdx < (int)methodDef->mParams.size()))
+					paramDef = methodDef->mParams[methodParam->mParamDefIdx];
+
+				BfCustomAttributes* paramAttrs = NULL;
+				if ((paramDef != NULL) && (paramDef->mParamDeclaration != NULL) && (paramDef->mParamDeclaration->mAttributes != NULL))
+					paramAttrs = mModule->GetCustomAttributes(paramDef->mParamDeclaration->mAttributes, BfAttributeTargets_Parameter, BfGetCustomAttributesFlags_KeepConstsInModule);
+				if ((paramAttrs != NULL) && (mModule->mCurTypeInstance != NULL))
+				{
+					auto targetConstHolder = mModule->mCurTypeInstance->GetOrCreateConstHolder();
+					for (auto& customAttr : paramAttrs->mAttributes)
+						mModule->CopyCustomAttributeConsts(customAttr, targetConstHolder);
+				}
+
+				methodInfoEx->mMethodCustomAttributes->mParamCustomAttributes.push_back(paramAttrs);
+			}
+		}
+	}
 
 	// We want the closure ID to match between hot reloads -- otherwise we wouldn't be able to modify them,
 	//  so we use the charId from the 'fat arrow' token
@@ -15670,6 +16066,9 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 		lambdaInstance->mDeclMixinState->mHasDeferredUsage = true;
 	tempParamDecls.ClearWithoutDeleting();
 
+	if ((!mModule->mIsComptimeModule) && (mModule->mContext != NULL))
+		mModule->mContext->mLambdaMethodGroups.Add(methodInstanceGroup);
+
 	closureState.mCapturing = false;
 	closureState.mClosureType = useTypeInstance;
 	closureInstanceInfo->mThisOverride = useTypeInstance;
@@ -15727,7 +16126,7 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 		BfMethodInstance* dtorMethodInstance = new BfMethodInstance();
 		dtorMethodInstance->mMethodDef = dtorMethodDef;
 		dtorMethodInstance->mReturnType = mModule->GetPrimitiveType(BfTypeCode_None);
-		dtorMethodInstance->mMethodInstanceGroup = &methodInstanceGroup;
+		dtorMethodInstance->mMethodInstanceGroup = methodInstanceGroup;
 
 		StringT<128> dtorMangledName;
 		BfMangler::Mangle(dtorMangledName, mModule->mCompiler->GetMangleKind(), dtorMethodInstance);
@@ -15776,8 +16175,6 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 
 	if (processMethods)
 		rootMethodState->mDeferredLambdaInstances.Add(lambdaInstance);
-
-	methodInstance->mMethodInstanceGroup = NULL;
 
 	return lambdaInstance;
 }

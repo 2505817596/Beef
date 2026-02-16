@@ -89,6 +89,16 @@ public:
 	}
 };
 
+static void HashRef(BeHashContext& hashCtx, BeHashble* hashble)
+{
+	if (hashble == NULL)
+	{
+		hashCtx.Mixin(0);
+		return;
+	}
+	hashble->HashReference(hashCtx);
+}
+
 class BeType : public BeHashble
 {
 public:
@@ -205,7 +215,7 @@ public:
 		hashCtx.Mixin(mMembers.size());
 		for (auto& member : mMembers)
 		{
-			member.mType->HashReference(hashCtx);
+			HashRef(hashCtx, member.mType);
 			hashCtx.Mixin(member.mByteOffset);
 		}
 		hashCtx.Mixin(mIsPacked);
@@ -221,7 +231,7 @@ public:
 	virtual void HashContent(BeHashContext& hashCtx) override
 	{
 		hashCtx.Mixin(BeTypeCode_Pointer);
-		mElementType->HashReference(hashCtx);
+		HashRef(hashCtx, mElementType);
 	}
 };
 
@@ -236,7 +246,7 @@ public:
 	{
 		hashCtx.Mixin(BeTypeCode_SizedArray);
 		hashCtx.Mixin(mLength);
-		mElementType->HashReference(hashCtx);
+		HashRef(hashCtx, mElementType);
 	}
 };
 
@@ -251,7 +261,7 @@ public:
 	{
 		hashCtx.Mixin(BeTypeCode_Vector);
 		hashCtx.Mixin(mLength);
-		mElementType->HashReference(hashCtx);
+		HashRef(hashCtx, mElementType);
 	}
 };
 
@@ -273,12 +283,10 @@ public:
 	{
 		hashCtx.Mixin(BeTypeCode_Function);
 		hashCtx.MixinStr(mName);
-		mReturnType->HashReference(hashCtx);
+		HashRef(hashCtx, mReturnType);
 		hashCtx.Mixin(mParams.size());
 		for (auto& param : mParams)
-		{
-			param.mType->HashReference(hashCtx);
-		}
+			HashRef(hashCtx, param.mType);
 		hashCtx.Mixin(mIsVarArg);
 	}
 };

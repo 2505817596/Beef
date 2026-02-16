@@ -872,6 +872,8 @@ static void DoHandleDebugEvent(LPEXCEPTION_POINTERS lpEP)
 	String exeFilePath = UTF8Encode(exeFilePathW);
 	String exeDir = GetFileDir(exeFilePath);
 	String crashPath = exeDir + "\\CrashDumps";
+	if (!BfpDirectory_Exists(crashPath.c_str()))
+		BfpDirectory_Create(crashPath.c_str(), NULL);
 	if (BfpDirectory_Exists(crashPath.c_str()))
 	{
 		crashPath += "\\" + GetFileName(exeFilePath);

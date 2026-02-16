@@ -514,7 +514,7 @@ enum BfIRStorageKind : uint8
 	BfIRStorageKind_Export
 };
 
-//#define CHECK_CONSTHOLDER
+#define CHECK_CONSTHOLDER
 
 struct BfIRRawValue
 {
@@ -578,6 +578,9 @@ public:
 	{
 		mFlags = flags;
 		mId = id;
+#ifdef CHECK_CONSTHOLDER
+		mHolder = NULL;
+#endif
 	}
 
 	operator bool() const

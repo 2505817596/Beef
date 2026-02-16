@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ZIG=/cygdrive/d/zig-x86_64-windows-0.16.0-dev.238+580b6d1fa/zig.exe
+ZIG=${BEEF_ZIG_EXE:-/cygdrive/d/zig-x86_64-windows-0.16.0-dev.238+580b6d1fa/zig.exe}
+ZIG_TARGET=${BEEF_ZIG_TARGET:-${ZIG_TARGET:-x86_64-linux-musl}}
 args=()
 for a in "$@"; do
   if [[ "$a" == /cygdrive/* ]]; then
@@ -13,4 +14,4 @@ for a in "$@"; do
   fi
   args+=("$a")
 done
-exec "$ZIG" c++ --target=x86_64-linux-musl -fno-sanitize=all "${args[@]}"
+exec "$ZIG" c++ --target="$ZIG_TARGET" -fno-sanitize=all "${args[@]}"

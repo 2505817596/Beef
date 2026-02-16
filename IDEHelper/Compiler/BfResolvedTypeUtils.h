@@ -2690,6 +2690,7 @@ public:
 	BfTypeDef* mDeclaringType;
 	BfTypeInstance* mType;
 	BfMethodDef* mCtor;
+	BfIRConstHolder* mConstHolder;
 	Array<BfIRValue> mCtorArgs;
 	Array<BfCustomAttributeSetProperty> mSetProperties;
 	Array<BfCustomAttributeSetField> mSetField;
@@ -2839,6 +2840,8 @@ public:
 	}
 
 	~BfResolvedTypeSet();
+
+	void SetEntryValue(EntryRef entry, BfType* value, LookupContext* ctx, const char* file, int line);
 
 	template <typename T>
 	bool Insert(T* findType, LookupContext* ctx, BfResolvedTypeSet::EntryRef* entryPtr)

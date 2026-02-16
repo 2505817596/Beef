@@ -2938,6 +2938,8 @@ public:
 	BfTokenNode* mOpenParen;
 	BfTokenNode* mCloseParen;
 	BfSizedArray<ASTREF(BfIdentifierNode*)> mParams;
+	BfSizedArray<ASTREF(BfAttributeDirective*)> mParamAttributes;
+	BfSizedArray<ASTREF(BfTypeReference*)> mParamTypeRefs;
 	BfSizedArray<ASTREF(BfTokenNode*)> mCommas;
 	BfTokenNode* mFatArrowToken;
 	BfAstNode* mBody; // Either expression or block

@@ -256,10 +256,80 @@ bool BfReducer::IsTypeReference(BfAstNode* checkNode, BfToken successToken, int 
 	if (outEndNode != NULL)
 		*outEndNode = -1;
 
+	if (auto checkTokenNode = BfNodeDynCast<BfTokenNode>(checkNode))
+	{
+		if (checkTokenNode->mToken == BfToken_LParen)
+		{
+			int scanParenDepth = 0;
+			for (int scanIdx = mVisitorPos.mReadPos; true; scanIdx++)
+			{
+				auto scanNode = mVisitorPos.Get(scanIdx);
+				if (scanNode == NULL)
+					break;
+				if (auto scanToken = BfNodeDynCast<BfTokenNode>(scanNode))
+				{
+					if (scanParenDepth > 0)
+					{
+						BfToken scanKind = scanToken->mToken;
+						if ((scanKind == BfToken_CompareEquals) || (scanKind == BfToken_CompareNotEquals) ||
+							(scanKind == BfToken_CompareStrictEquals) || (scanKind == BfToken_CompareStrictNotEquals))
+						{
+							if (auto afterCompare = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(scanIdx + 1)))
+							{
+								if (afterCompare->mToken == BfToken_FatArrow)
+									return false;
+							}
+						}
+					}
+
+					if (scanToken->mToken == BfToken_LParen)
+					{
+						scanParenDepth++;
+					}
+					else if (scanToken->mToken == BfToken_RParen)
+					{
+						scanParenDepth--;
+						if (scanParenDepth == 0)
+						{
+							if (auto afterToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(scanIdx + 1)))
+							{
+								if (afterToken->mToken == BfToken_FatArrow)
+									return false;
+							}
+							break;
+						}
+					}
+					else if ((scanParenDepth == 0) && (scanToken->mToken == BfToken_Semicolon))
+					{
+						break;
+					}
+				}
+			}
+		}
+	}
+
 	auto firstNode = checkNode;
 	if (checkNode == NULL)
 		return false;
 	int checkIdx = mVisitorPos.mReadPos;
+	if (successToken == BfToken_None)
+	{
+		if (BfNodeDynCast<BfIdentifierNode>(checkNode) != NULL)
+		{
+			auto dotToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(checkIdx + 1));
+			auto rightIdent = BfNodeDynCast<BfIdentifierNode>(mVisitorPos.Get(checkIdx + 2));
+			auto eqToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(checkIdx + 3));
+			auto fatArrowToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(checkIdx + 4));
+			if ((dotToken != NULL) && (dotToken->mToken == BfToken_Dot) &&
+				(rightIdent != NULL) &&
+				(eqToken != NULL) && ((eqToken->mToken == BfToken_CompareEquals) || (eqToken->mToken == BfToken_CompareNotEquals) ||
+					(eqToken->mToken == BfToken_CompareStrictEquals) || (eqToken->mToken == BfToken_CompareStrictNotEquals)) &&
+				(fatArrowToken != NULL) && (fatArrowToken->mToken == BfToken_FatArrow))
+			{
+				return false;
+			}
+		}
+	}
 	if ((!checkNode->IsA<BfIdentifierNode>()) && (!checkNode->IsA<BfMemberReferenceExpression>()))
 	{
 		if (auto checkTokenNode = BfNodeDynCast<BfTokenNode>(checkNode))
@@ -548,6 +618,14 @@ bool BfReducer::IsTypeReference(BfAstNode* checkNode, BfToken successToken, int 
 
 					if (success)
 					{
+						if (successToken == BfToken_RParen)
+						{
+							if (auto afterToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(checkIdx + 1)))
+							{
+								if (afterToken->GetToken() == BfToken_FatArrow)
+									return false;
+							}
+						}
 						if (outEndNode != NULL)
 							*outEndNode = checkIdx;
 						return true;
@@ -1633,16 +1711,74 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 		return interpolateExpr;
 	}
 
+	if (auto tokenNode = BfNodeDynCast<BfTokenNode>(node))
+	{
+		if (tokenNode->GetToken() == BfToken_LParen)
+		{
+			int scanParenDepth = 0;
+			bool isParenLambda = false;
+			for (int scanIdx = mVisitorPos.mReadPos; true; scanIdx++)
+			{
+				auto scanNode = mVisitorPos.Get(scanIdx);
+				if (scanNode == NULL)
+					break;
+				if (auto scanToken = BfNodeDynCast<BfTokenNode>(scanNode))
+				{
+					if (scanToken->mToken == BfToken_LParen)
+					{
+						scanParenDepth++;
+					}
+					else if (scanToken->mToken == BfToken_RParen)
+					{
+						scanParenDepth--;
+						if (scanParenDepth == 0)
+						{
+							if (auto afterToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(scanIdx + 1)))
+							{
+								if (afterToken->mToken == BfToken_FatArrow)
+									isParenLambda = true;
+							}
+							break;
+						}
+					}
+					else if ((scanParenDepth == 0) && (scanToken->mToken == BfToken_Semicolon))
+					{
+						break;
+					}
+				}
+			}
+			if (isParenLambda)
+				return CreateLambdaBindExpression(NULL, tokenNode);
+		}
+	}
+
 	if ((createExprFlags & (CreateExprFlags_AllowVariableDecl | CreateExprFlags_PermissiveVariableDecl)) != 0)
 	{
 		bool isLocalVariable = false;
 		auto nextNode = mVisitorPos.GetNext();
 		BfVariableDeclaration* continuingVariable = NULL;
 
+		bool skipVariableDecl = false;
+		if (BfNodeDynCast<BfIdentifierNode>(node) != NULL)
+		{
+			auto dotToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(mVisitorPos.mReadPos + 1));
+			auto rightIdent = BfNodeDynCast<BfIdentifierNode>(mVisitorPos.Get(mVisitorPos.mReadPos + 2));
+			auto eqToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(mVisitorPos.mReadPos + 3));
+			auto fatArrowToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(mVisitorPos.mReadPos + 4));
+			if ((dotToken != NULL) && (dotToken->mToken == BfToken_Dot) &&
+				(rightIdent != NULL) &&
+				(eqToken != NULL) && ((eqToken->mToken == BfToken_CompareEquals) || (eqToken->mToken == BfToken_CompareNotEquals) ||
+					(eqToken->mToken == BfToken_CompareStrictEquals) || (eqToken->mToken == BfToken_CompareStrictNotEquals)) &&
+				(fatArrowToken != NULL) && (fatArrowToken->mToken == BfToken_FatArrow))
+			{
+				skipVariableDecl = true;
+			}
+		}
+
 		int outEndNode = -1;
 		bool couldBeExpr = false;
 		bool isTuple = false;
-		if (IsTypeReference(node, BfToken_None, -1, &outEndNode, &couldBeExpr, NULL, &isTuple))
+		if ((!skipVariableDecl) && (IsTypeReference(node, BfToken_None, -1, &outEndNode, &couldBeExpr, NULL, &isTuple)))
 		{
 			if ((createExprFlags & CreateExprFlags_PermissiveVariableDecl) != 0)
 				isLocalVariable = true;
@@ -1680,6 +1816,67 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 			{
 				if ((typeNameToken->GetToken() == BfToken_Var) || (typeNameToken->GetToken() == BfToken_Let))
 					isLocalVariable = true;
+			}
+		}
+
+		if (isLocalVariable)
+		{
+			if (outEndNode != -1)
+			{
+				auto tryScanName = [&](int startIdx) -> int
+				{
+					int scanIdx = startIdx;
+					while (auto scanToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(scanIdx)))
+					{
+						BfToken token = scanToken->GetToken();
+						if ((token == BfToken_Ref) || (token == BfToken_Mut) || (token == BfToken_In) || (token == BfToken_Out))
+						{
+							scanIdx++;
+							continue;
+						}
+						break;
+					}
+
+					auto nameNode = mVisitorPos.Get(scanIdx);
+					if (BfNodeDynCast<BfIdentifierNode>(nameNode) != NULL)
+						return scanIdx;
+					if (auto nameToken = BfNodeDynCastExact<BfTokenNode>(nameNode))
+					{
+						if (nameToken->GetToken() == BfToken_LParen)
+							return scanIdx;
+					}
+					return -1;
+				};
+
+				int nameIdx = tryScanName(outEndNode + 1);
+				if (nameIdx == -1)
+				{
+					bool prevIsQualifier = false;
+					if (auto prevToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(outEndNode - 1)))
+					{
+						BfToken prevKind = prevToken->GetToken();
+						prevIsQualifier = (prevKind == BfToken_Dot) || (prevKind == BfToken_ColonColon);
+					}
+
+					if (!prevIsQualifier)
+						nameIdx = tryScanName(outEndNode);
+				}
+
+				if (nameIdx == -1)
+				{
+					isLocalVariable = false;
+				}
+				else
+				{
+					if (auto afterNameToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(nameIdx + 1)))
+					{
+						BfToken afterKind = afterNameToken->GetToken();
+						bool isDeclTerminator = (afterKind == BfToken_AssignEquals) || (afterKind == BfToken_Comma) ||
+							(afterKind == BfToken_RParen) || (afterKind == BfToken_Semicolon);
+						if (!isDeclTerminator)
+							isLocalVariable = false;
+					}
+				}
 			}
 		}
 
@@ -1960,6 +2157,44 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 					//  We assume it's a lambda bind unless theres a "()" afterward
 					if (nextToken == BfToken_LParen)
 					{
+						bool sawFatArrow = false;
+						int scanParenDepth = 0;
+						for (int scanIdx = mVisitorPos.mReadPos + 1; true; scanIdx++)
+						{
+							auto scanNode = mVisitorPos.Get(scanIdx);
+							if (scanNode == NULL)
+								break;
+							if (auto scanToken = BfNodeDynCast<BfTokenNode>(scanNode))
+							{
+								if (scanToken->mToken == BfToken_LParen)
+								{
+									scanParenDepth++;
+								}
+								else if (scanToken->mToken == BfToken_RParen)
+								{
+									scanParenDepth--;
+									if (scanParenDepth == 0)
+									{
+										if (auto afterToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(scanIdx + 1)))
+										{
+											if (afterToken->mToken == BfToken_FatArrow)
+												sawFatArrow = true;
+										}
+										break;
+									}
+								}
+								else if ((scanParenDepth == 0) && (scanToken->mToken == BfToken_Semicolon))
+								{
+									break;
+								}
+							}
+						}
+						if (sawFatArrow)
+						{
+							isLambdaBind = true;
+						}
+						else
+						{
 						int endNode = -1;
 						mVisitorPos.mReadPos++;
 						if (!IsTypeReference(nextTokenNode, BfToken_LParen, -1, &endNode))
@@ -1967,6 +2202,7 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 							isLambdaBind = true;
 						}
 						mVisitorPos.mReadPos--;
+						}
 					}
 				}
 
@@ -2287,12 +2523,55 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 			{
 				bool couldBeExpr = true;
 
+				int scanParenDepth = 0;
+				bool isParenLambda = false;
+				for (int scanIdx = mVisitorPos.mReadPos; true; scanIdx++)
+				{
+					auto scanNode = mVisitorPos.Get(scanIdx);
+					if (scanNode == NULL)
+						break;
+					if (auto scanToken = BfNodeDynCast<BfTokenNode>(scanNode))
+					{
+						if (scanToken->mToken == BfToken_LParen)
+						{
+							scanParenDepth++;
+						}
+						else if (scanToken->mToken == BfToken_RParen)
+						{
+							scanParenDepth--;
+							if (scanParenDepth == 0)
+							{
+								if (auto afterToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(scanIdx + 1)))
+								{
+									if (afterToken->mToken == BfToken_FatArrow)
+										isParenLambda = true;
+								}
+								break;
+							}
+						}
+						else if ((scanParenDepth == 0) && (scanToken->mToken == BfToken_Semicolon))
+						{
+							break;
+						}
+					}
+				}
+				if (isParenLambda)
+					return CreateLambdaBindExpression(NULL, tokenNode);
+
 				// Peek ahead
 				int endNodeIdx = -1;
 				BfAstNode* endNode = NULL;
 				bool isTuple = false;
 
-				bool outerIsTypeRef = IsTypeReference(tokenNode, BfToken_FatArrow, -1, &endNodeIdx, &couldBeExpr, NULL, &isTuple);
+				bool checkTypeRefForLambda = false;
+				if (auto firstToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.GetNext()))
+				{
+					BfToken firstKind = firstToken->GetToken();
+					checkTypeRefForLambda = (firstKind == BfToken_Function) || (firstKind == BfToken_Delegate);
+				}
+
+				bool outerIsTypeRef = checkTypeRefForLambda &&
+					IsTypeReference(tokenNode, BfToken_FatArrow, -1, &endNodeIdx, &couldBeExpr, NULL, &isTuple);
 				if (outerIsTypeRef)
 				{
 					if (endNodeIdx != -1)
@@ -2304,13 +2583,11 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 							if (endToken->GetToken() == BfToken_FatArrow)
 							{
 								isLambda = true;
-								if (auto innerToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.GetNext()))
+								auto prevToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(endNodeIdx - 1));
+								if ((prevToken == NULL) || (prevToken->mToken != BfToken_RParen))
 								{
-									if (innerToken->mToken != BfToken_RParen)
-									{
-										// Specifically we're looking for a (function ...) cast, but any token besides a close here means it's not a lambda
-										isLambda = false;
-									}
+									// Specifically we're looking for a (function ...) cast, so require the fat arrow to follow a close paren
+									isLambda = false;
 								}
 							}
 							if (isLambda)
@@ -2326,6 +2603,14 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 					isCastExpr = IsTypeReference(node, BfToken_RParen, -1, &endNodeIdx, &couldBeExpr, NULL, &isTuple);
 				if (endNodeIdx != -1)
 					endNode = mVisitorPos.Get(endNodeIdx);
+				if (endNodeIdx != -1)
+				{
+					if (auto afterEndToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(endNodeIdx + 1)))
+					{
+						if (afterEndToken->GetToken() == BfToken_FatArrow)
+							return CreateLambdaBindExpression(NULL, tokenNode);
+					}
+				}
 				if (isCastExpr)
 				{
 					bool isValidTupleCast = false;
@@ -2649,6 +2934,181 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 			if (((createExprFlags & CreateExprFlags_BreakOnRChevron) != 0) &&
 				((token == BfToken_RChevron) || (token == BfToken_RDblChevron)))
 				return exprLeft;
+
+			if (token == BfToken_FatArrow)
+			{
+				BfLambdaBindExpression* lambdaBindExpr = NULL;
+				BfParenthesizedExpression* parenExpr = BfNodeDynCast<BfParenthesizedExpression>(exprLeft);
+				BfTupleExpression* tupleExpr = (parenExpr != NULL) ? NULL : BfNodeDynCast<BfTupleExpression>(exprLeft);
+				bool isValidParamList = false;
+				auto getParamFromValue = [&](BfExpression* value, BfIdentifierNode** outName, BfTypeReference** outTypeRef, BfNamedTypeReference** outNamedTypeRef)
+				{
+					*outName = NULL;
+					*outTypeRef = NULL;
+					if (outNamedTypeRef != NULL)
+						*outNamedTypeRef = NULL;
+
+					if (auto nameIdentifier = BfNodeDynCast<BfIdentifierNode>(value))
+					{
+						*outName = nameIdentifier;
+						return true;
+					}
+
+					auto varDecl = BfNodeDynCast<BfVariableDeclaration>(value);
+					if (varDecl == NULL)
+						return false;
+					if (varDecl->mInitializer != NULL)
+						return false;
+
+					if (auto nameIdentifier = BfNodeDynCast<BfIdentifierNode>(varDecl->mNameNode))
+					{
+						*outName = nameIdentifier;
+						*outTypeRef = varDecl->mTypeRef;
+						return true;
+					}
+
+					auto namedTypeRef = BfNodeDynCast<BfNamedTypeReference>(varDecl->mTypeRef);
+					if ((namedTypeRef != NULL) && (namedTypeRef->mNameNode != NULL))
+					{
+						*outName = namedTypeRef->mNameNode;
+						if (outNamedTypeRef != NULL)
+							*outNamedTypeRef = namedTypeRef;
+						return true;
+					}
+
+					return false;
+				};
+
+				if (parenExpr != NULL)
+				{
+					isValidParamList = parenExpr->mExpression != NULL;
+					if (isValidParamList)
+					{
+						BfIdentifierNode* paramName = NULL;
+						BfTypeReference* paramTypeRef = NULL;
+						BfNamedTypeReference* namedTypeRef = NULL;
+						isValidParamList = getParamFromValue(parenExpr->mExpression, &paramName, &paramTypeRef, &namedTypeRef);
+					}
+				}
+				else if (tupleExpr != NULL)
+				{
+					isValidParamList = tupleExpr->mNames.IsEmpty();
+					for (int i = 0; i < (int)tupleExpr->mValues.size(); i++)
+					{
+						BfIdentifierNode* paramName = NULL;
+						BfTypeReference* paramTypeRef = NULL;
+						BfNamedTypeReference* namedTypeRef = NULL;
+						if (!getParamFromValue(tupleExpr->mValues[i], &paramName, &paramTypeRef, &namedTypeRef))
+						{
+							isValidParamList = false;
+							break;
+						}
+					}
+				}
+
+				if (isValidParamList)
+				{
+					lambdaBindExpr = mAlloc->Alloc<BfLambdaBindExpression>();
+					BfDeferredAstSizedArray<BfIdentifierNode*> params(lambdaBindExpr->mParams, mAlloc);
+					BfDeferredAstSizedArray<BfAttributeDirective*> paramAttributes(lambdaBindExpr->mParamAttributes, mAlloc);
+					BfDeferredAstSizedArray<BfTypeReference*> paramTypeRefs(lambdaBindExpr->mParamTypeRefs, mAlloc);
+					BfDeferredAstSizedArray<BfTokenNode*> commas(lambdaBindExpr->mCommas, mAlloc);
+
+					ReplaceNode(exprLeft, lambdaBindExpr);
+
+					BfTokenNode* openParen = NULL;
+					BfTokenNode* closeParen = NULL;
+					if (parenExpr != NULL)
+					{
+						openParen = parenExpr->mOpenParen;
+						closeParen = parenExpr->mCloseParen;
+						BfIdentifierNode* nameIdentifier = NULL;
+						BfTypeReference* paramTypeRef = NULL;
+						BfNamedTypeReference* namedTypeRef = NULL;
+						getParamFromValue(parenExpr->mExpression, &nameIdentifier, &paramTypeRef, &namedTypeRef);
+						if (nameIdentifier != NULL)
+						{
+							MoveNode(nameIdentifier, lambdaBindExpr);
+							params.push_back(nameIdentifier);
+							paramAttributes.push_back(NULL);
+							paramTypeRefs.push_back(paramTypeRef);
+							if (paramTypeRef != NULL)
+								MoveNode(paramTypeRef, lambdaBindExpr);
+							else if (namedTypeRef != NULL)
+								namedTypeRef->mNameNode = NULL;
+						}
+					}
+					else if (tupleExpr != NULL)
+					{
+						openParen = tupleExpr->mOpenParen;
+						closeParen = tupleExpr->mCloseParen;
+						for (int i = 0; i < (int)tupleExpr->mValues.size(); i++)
+						{
+							BfIdentifierNode* nameIdentifier = NULL;
+							BfTypeReference* paramTypeRef = NULL;
+							BfNamedTypeReference* namedTypeRef = NULL;
+							getParamFromValue(tupleExpr->mValues[i], &nameIdentifier, &paramTypeRef, &namedTypeRef);
+							if (nameIdentifier == NULL)
+								continue;
+							MoveNode(nameIdentifier, lambdaBindExpr);
+							params.push_back(nameIdentifier);
+							paramAttributes.push_back(NULL);
+							paramTypeRefs.push_back(paramTypeRef);
+							if (paramTypeRef != NULL)
+								MoveNode(paramTypeRef, lambdaBindExpr);
+							else if (namedTypeRef != NULL)
+								namedTypeRef->mNameNode = NULL;
+						}
+						for (int i = 0; i < (int)tupleExpr->mCommas.size(); i++)
+						{
+							auto commaToken = tupleExpr->mCommas[i];
+							if (commaToken != NULL)
+							{
+								MoveNode(commaToken, lambdaBindExpr);
+								commas.push_back(commaToken);
+							}
+						}
+					}
+
+					if (openParen != NULL)
+					{
+						MEMBER_SET_CHECKED(lambdaBindExpr, mOpenParen, openParen);
+					}
+					if (closeParen != NULL)
+					{
+						MEMBER_SET(lambdaBindExpr, mCloseParen, closeParen);
+					}
+
+					tokenNode = ExpectTokenAfter(lambdaBindExpr, BfToken_FatArrow);
+					MEMBER_SET_CHECKED(lambdaBindExpr, mFatArrowToken, tokenNode);
+
+					auto nextLambdaNode = mVisitorPos.GetNext();
+					if (auto block = BfNodeDynCast<BfBlock>(nextLambdaNode))
+					{
+						HandleBlock(block, true);
+						mVisitorPos.MoveNext();
+						MEMBER_SET_CHECKED(lambdaBindExpr, mBody, block);
+					}
+					else
+					{
+						auto expr = CreateExpressionAfter(lambdaBindExpr);
+						MEMBER_SET_CHECKED(lambdaBindExpr, mBody, expr);
+					}
+
+					auto lambdaDtor = CreateFieldDtorDeclaration(lambdaBindExpr);
+					if (lambdaDtor != NULL)
+					{
+						if ((mIsFieldInitializer) && (!mInParenExpr))
+						{
+							Fail("Ambiguous destructor: could be field destructor or lambda destructor. Disambiguate with parentheses, either '(lambda) ~ fieldDtor' or '(lambda ~ lambdaDtor)'", lambdaBindExpr);
+						}
+
+						lambdaBindExpr->mDtor = lambdaDtor;
+					}
+
+					return lambdaBindExpr;
+				}
+			}
 
 			BfUnaryOp postUnaryOp = BfUnaryOp_None;
 			if (token == BfToken_DblPlus)
@@ -8180,7 +8640,10 @@ BfDelegateBindExpression* BfReducer::CreateDelegateBindExpression(BfAstNode* all
 BfLambdaBindExpression* BfReducer::CreateLambdaBindExpression(BfAstNode* allocNode, BfTokenNode* parenToken)
 {
 	auto lambdaBindExpr = mAlloc->Alloc<BfLambdaBindExpression>();
+	bool allowTypedParams = allocNode != NULL;
 	BfDeferredAstSizedArray<BfIdentifierNode*> params(lambdaBindExpr->mParams, mAlloc);
+	BfDeferredAstSizedArray<BfAttributeDirective*> paramAttributes(lambdaBindExpr->mParamAttributes, mAlloc);
+	BfDeferredAstSizedArray<BfTypeReference*> paramTypeRefs(lambdaBindExpr->mParamTypeRefs, mAlloc);
 	BfDeferredAstSizedArray<BfTokenNode*> commas(lambdaBindExpr->mCommas, mAlloc);
 	BfTokenNode* tokenNode;
 	if (allocNode != NULL)
@@ -8208,11 +8671,177 @@ BfLambdaBindExpression* BfReducer::CreateLambdaBindExpression(BfAstNode* allocNo
 			isRParen = tokenNode->GetToken() == BfToken_RParen;
 		if (!isRParen)
 		{
-			auto nameIdentifier = ExpectIdentifierAfter(lambdaBindExpr, "parameter name");
+			BfAttributeDirective* paramAttr = NULL;
+			if (auto attrToken = BfNodeDynCast<BfTokenNode>(nextNode))
+			{
+				if (attrToken->GetToken() == BfToken_LBracket)
+				{
+					mVisitorPos.MoveNext();
+					paramAttr = CreateAttributeDirective(attrToken);
+					if (paramAttr != NULL)
+						MoveNode(paramAttr, lambdaBindExpr);
+				}
+			}
+
+			BfTypeReference* paramTypeRef = NULL;
+			BfAstNode* nameAfterNode = (paramAttr != NULL) ? (BfAstNode*)paramAttr : (BfAstNode*)lambdaBindExpr;
+
+			int typeRefEndIdx = -1;
+			bool hasTypeRef = false;
+			int checkReadPos = mVisitorPos.mReadPos;
+			auto nextParamNode = mVisitorPos.Get(checkReadPos + 1);
+			bool isSimpleName = false;
+			int typeRefEndNode = -1;
+			if (auto nextIdent = BfNodeDynCast<BfIdentifierNode>(nextParamNode))
+			{
+				if (auto afterIdentToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(checkReadPos + 2)))
+				{
+					if ((afterIdentToken->mToken == BfToken_Comma) || (afterIdentToken->mToken == BfToken_RParen))
+						isSimpleName = true;
+				}
+			}
+			if ((allowTypedParams) && (!isSimpleName) && (nextParamNode != NULL))
+			{
+				int nameIdx = -1;
+				int nameAfterIdx = -1;
+				int scanParenDepth = 0;
+				int scanBracketDepth = 0;
+				int scanChevronDepth = 0;
+				int lastIdentIdx = -1;
+				for (int scanIdx = checkReadPos + 1; true; scanIdx++)
+				{
+					auto scanNode = mVisitorPos.Get(scanIdx);
+					if (scanNode == NULL)
+						break;
+
+					if (auto scanToken = BfNodeDynCast<BfTokenNode>(scanNode))
+					{
+						BfToken scanTokenKind = scanToken->mToken;
+						if (scanTokenKind == BfToken_LParen)
+						{
+							scanParenDepth++;
+						}
+						else if (scanTokenKind == BfToken_RParen)
+						{
+							if ((scanParenDepth == 0) && (scanBracketDepth == 0) && (scanChevronDepth == 0))
+							{
+								nameAfterIdx = scanIdx;
+								break;
+							}
+							if (scanParenDepth > 0)
+								scanParenDepth--;
+						}
+						else if ((scanTokenKind == BfToken_LBracket) || (scanTokenKind == BfToken_QuestionLBracket))
+						{
+							scanBracketDepth++;
+						}
+						else if (scanTokenKind == BfToken_RBracket)
+						{
+							if (scanBracketDepth > 0)
+								scanBracketDepth--;
+						}
+						else if (scanTokenKind == BfToken_LChevron)
+						{
+							scanChevronDepth++;
+						}
+						else if (scanTokenKind == BfToken_RChevron)
+						{
+							if (scanChevronDepth > 0)
+								scanChevronDepth--;
+						}
+						else if (scanTokenKind == BfToken_RDblChevron)
+						{
+							if (scanChevronDepth >= 2)
+								scanChevronDepth -= 2;
+							else
+								scanChevronDepth = 0;
+						}
+						else if (scanTokenKind == BfToken_Comma)
+						{
+							if ((scanParenDepth == 0) && (scanBracketDepth == 0) && (scanChevronDepth == 0))
+							{
+								nameAfterIdx = scanIdx;
+								break;
+							}
+						}
+					}
+					else if (scanNode->IsA<BfIdentifierNode>())
+					{
+						if ((scanParenDepth == 0) && (scanBracketDepth == 0) && (scanChevronDepth == 0))
+							lastIdentIdx = scanIdx;
+					}
+				}
+
+				if ((nameAfterIdx != -1) && (lastIdentIdx != -1) && (lastIdentIdx > checkReadPos + 1))
+					nameIdx = lastIdentIdx;
+
+				if (nameIdx != -1)
+				{
+					SetAndRestoreValue<int> prevReadPos(mVisitorPos.mReadPos, checkReadPos + 1);
+					bool couldBeExpr = true;
+					bool isTuple = false;
+					if (IsTypeReference(mVisitorPos.GetCurrent(), BfToken_None, nameIdx, &typeRefEndIdx, &couldBeExpr, NULL, &isTuple))
+					{
+						hasTypeRef = true;
+						typeRefEndNode = nameIdx;
+					}
+				}
+
+				SetAndRestoreValue<int> prevReadPos(mVisitorPos.mReadPos, checkReadPos + 1);
+				bool couldBeExpr = true;
+				bool isTuple = false;
+				if ((!hasTypeRef) && (IsTypeReference(mVisitorPos.GetCurrent(), BfToken_None, -1, &typeRefEndIdx, &couldBeExpr, NULL, &isTuple)))
+				{
+					auto nameNode = BfNodeDynCast<BfIdentifierNode>(mVisitorPos.Get(typeRefEndIdx + 1));
+					auto afterNameToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(typeRefEndIdx + 2));
+					if ((nameNode != NULL) && (afterNameToken != NULL) &&
+						((afterNameToken->mToken == BfToken_Comma) || (afterNameToken->mToken == BfToken_RParen)))
+					{
+						hasTypeRef = true;
+					}
+					else
+					{
+						auto nameAtEndNode = BfNodeDynCast<BfIdentifierNode>(mVisitorPos.Get(typeRefEndIdx));
+						auto afterNameAtEndToken = BfNodeDynCast<BfTokenNode>(mVisitorPos.Get(typeRefEndIdx + 1));
+						if ((nameAtEndNode != NULL) && (afterNameAtEndToken != NULL) &&
+							((afterNameAtEndToken->mToken == BfToken_Comma) || (afterNameAtEndToken->mToken == BfToken_RParen)))
+						{
+							hasTypeRef = true;
+						}
+					}
+				}
+			}
+
+			if (hasTypeRef)
+			{
+				if (typeRefEndNode != -1)
+				{
+					int prevReadPos = mVisitorPos.mReadPos;
+					mVisitorPos.mReadPos = checkReadPos + 1;
+					paramTypeRef = DoCreateTypeRef(mVisitorPos.GetCurrent(), CreateTypeRefFlags_None, typeRefEndNode);
+					if (paramTypeRef == NULL)
+					{
+						mVisitorPos.mReadPos = prevReadPos;
+						return lambdaBindExpr;
+					}
+				}
+				else
+				{
+					paramTypeRef = CreateTypeRefAfter(nameAfterNode);
+				}
+				if (paramTypeRef == NULL)
+					return lambdaBindExpr;
+				MoveNode(paramTypeRef, lambdaBindExpr);
+				nameAfterNode = paramTypeRef;
+			}
+
+			auto nameIdentifier = ExpectIdentifierAfter(nameAfterNode, "parameter name");
 			if (nameIdentifier == NULL)
 				return lambdaBindExpr;
 			MoveNode(nameIdentifier, lambdaBindExpr);
 			params.push_back(nameIdentifier);
+			paramAttributes.push_back(paramAttr);
+			paramTypeRefs.push_back(paramTypeRef);
 		}
 
 		tokenNode = ExpectTokenAfter(lambdaBindExpr, BfToken_Comma, BfToken_RParen);
@@ -8960,6 +9589,8 @@ BfTupleExpression* BfReducer::CreateTupleExpression(BfTokenNode* node, BfExpress
 	ReplaceNode(node, tupleExpr);
 	tupleExpr->mOpenParen = node;
 
+	auto tupleExprFlags = CreateExprFlags_AllowVariableDecl;
+
 	BfDeferredAstSizedArray<BfTupleNameNode*> names(tupleExpr->mNames, mAlloc);
 	BfDeferredAstSizedArray<BfExpression*> values(tupleExpr->mValues, mAlloc);
 	BfDeferredAstSizedArray<BfTokenNode*> commas(tupleExpr->mCommas, mAlloc);
@@ -8984,7 +9615,7 @@ BfTupleExpression* BfReducer::CreateTupleExpression(BfTokenNode* node, BfExpress
 			}
 
 			if (!skipExpr)
-				innerExpr = CreateExpressionAfter(tupleExpr, CreateExprFlags_PermissiveVariableDecl);
+				innerExpr = CreateExpressionAfter(tupleExpr, tupleExprFlags);
 		}
 		if (innerExpr == NULL)
 		{

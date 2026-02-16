@@ -16,8 +16,8 @@ namespace IDE.Compiler
 {
     //public class Bf
 
-    public class BfCompiler : CompilerBase
-    {
+	public class BfCompiler : CompilerBase
+	{
 		enum OptionFlags : int32
 		{
 			EmitDebugInfo = 1,
@@ -254,17 +254,40 @@ namespace IDE.Compiler
             mNativeBfCompiler = nativeBfCompiler;
         }
 
+		static void CleanTrace(StringView msg)
+		{
+			let app = IDE.gApp;
+			if ((app == null) || (app.mInstallDir == null) || (app.mInstallDir.Length == 0))
+				return;
+
+			String path = scope String(app.mInstallDir);
+			Utils.GetDirWithSlash(path);
+			path.Append("clean_trace.txt");
+
+			String line = scope String();
+			line.AppendF("{} {}\n", DateTime.Now.Ticks, msg);
+			File.WriteAllText(path, line, true).IgnoreError();
+		}
+
 		public ~this()
 		{
+			CleanTrace(scope String()..AppendF("BfCompiler.~this start resolve={}", mIsResolveOnly));
+			CleanTrace("BfCompiler.~this before native delete");
 		    BfCompiler_Delete(mNativeBfCompiler);
 		    mNativeBfCompiler = null;
+			CleanTrace("BfCompiler.~this after native delete");
 
+			CleanTrace(scope String()..AppendF("BfCompiler.~this remove watch count={}", mRebuildWatchingFiles.Count));
+			int watchIdx = 0;
 			for (var kv in mRebuildWatchingFiles)
 			{
+				CleanTrace(scope String()..AppendF("BfCompiler.~this remove watch {} {}", watchIdx, kv.key));
 				gApp.mFileWatcher.RemoveWatch(kv.key, kv.value);
 				delete kv.key;
 				delete kv.value;
+				watchIdx++;
 			}
+			CleanTrace("BfCompiler.~this end");
 		}
 
         public bool Compile(BfPassInstance passInstance, String outputDirectory)

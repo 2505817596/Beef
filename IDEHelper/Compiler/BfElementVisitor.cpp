@@ -635,8 +635,14 @@ void BfElementVisitor::Visit(BfLambdaBindExpression* lambdaBindExpr)
 
 	VisitChild(lambdaBindExpr->mOpenParen);
 	VisitChild(lambdaBindExpr->mCloseParen);
-	for (auto& val : lambdaBindExpr->mParams)
-		VisitChild(val);
+	for (int i = 0; i < (int)lambdaBindExpr->mParams.size(); i++)
+	{
+		if (auto paramAttrs = lambdaBindExpr->mParamAttributes.GetSafe(i))
+			VisitChildNoRef(paramAttrs);
+		if (auto paramTypeRef = lambdaBindExpr->mParamTypeRefs.GetSafe(i))
+			VisitChild(paramTypeRef);
+		VisitChild(lambdaBindExpr->mParams[i]);
+	}
 	for (auto& val : lambdaBindExpr->mCommas)
 		VisitChild(val);
 	VisitChild(lambdaBindExpr->mFatArrowToken);

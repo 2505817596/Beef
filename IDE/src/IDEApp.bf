@@ -285,6 +285,8 @@ namespace IDE
 		public bool mCompilingBeef = false;
 		public bool mWantsClean = false;
 		public bool mWantsBeefClean = false;
+		bool mCleanTraceActive = false;
+		int32 mCleanTracePhase = 0;
 		public bool mWantsRehupCallstack = false;
 		public bool mDebugAutoBuild = false;
 		public bool mDebugAutoRun = false;
@@ -8404,6 +8406,30 @@ namespace IDE
 				mBfResolveSystem.Log(str);
 		}
 
+		void CleanTrace(StringView msg)
+		{
+			if ((mInstallDir == null) || (mInstallDir.Length == 0))
+				return;
+
+			String path = scope String(mInstallDir);
+			Utils.GetDirWithSlash(path);
+			path.Append("clean_trace.txt");
+
+			String line = scope String();
+			line.AppendF("{} {}\n", DateTime.Now.Ticks, msg);
+			File.WriteAllText(path, line, true).IgnoreError();
+		}
+
+		void CleanTracePhase(int32 phase, StringView msg)
+		{
+			if (!mCleanTraceActive)
+				return;
+			if (mCleanTracePhase == phase)
+				return;
+			mCleanTracePhase = phase;
+			CleanTrace(msg);
+		}
+
 		public virtual void OutputLine(String format, params Object[] args)
 		{
 			String outStr;
@@ -13747,10 +13773,19 @@ namespace IDE
 					}
 				}
 
+				if ((mWantsClean) && (!mCleanTraceActive))
+				{
+					mCleanTraceActive = true;
+					mCleanTracePhase = 0;
+					CleanTrace("Clean requested");
+				}
+
 				if (mWantsClean)
 				{
+					CleanTracePhase(1, "Clean: cancel background");
 					mBfBuildCompiler?.CancelBackground();
 					mBfResolveCompiler?.CancelBackground();
+					CleanTracePhase(2, "Clean: cancel background done");
 
 					if ((!mBfBuildCompiler.HasQueuedCommands()) && (!mBfResolveCompiler.HasQueuedCommands())
 					#if IDE_C_SUPPORT
@@ -13758,27 +13793,38 @@ namespace IDE
 #endif
 						)
 					{
+						CleanTracePhase(4, "Clean: queues empty");
 						OutputLine("Cleaned.");
 
+						CleanTracePhase(41, "Clean: clear errors");
 						if (mErrorsPanel != null)
 							mErrorsPanel.ClearParserErrors(null);
 
+						CleanTracePhase(42, "Clean: get workspace options");
 						let workspaceOptions = GetCurWorkspaceOptions();
 
+						CleanTracePhase(43, "Clean: delete resolve helper");
 						delete mBfResolveHelper;
+						CleanTracePhase(44, "Clean: delete resolve compiler");
 						delete mBfResolveCompiler;
+						CleanTracePhase(45, "Clean: delete resolve system");
 						delete mBfResolveSystem;
 #if IDE_C_SUPPORT
+						CleanTracePhase(46, "Clean: delete resolve clang");
 						delete mResolveClang;
 #endif
 
+						CleanTracePhase(47, "Clean: delete build compiler");
 						delete mBfBuildCompiler;
+						CleanTracePhase(48, "Clean: delete build system");
 						delete mBfBuildSystem;
 #if IDE_C_SUPPORT
+						CleanTracePhase(49, "Clean: delete dep clang");
 						delete mDepClang;
 #endif
 						//
 
+						CleanTracePhase(5, "Clean: recreate systems");
 						CreateBfSystems();
 						mBfBuildCompiler.ClearBuildCache();
 
@@ -13786,6 +13832,7 @@ namespace IDE
 						GetWorkspaceBuildDir(workspaceBuildDir);
 						if (Directory.Exists(workspaceBuildDir))
 						{
+							CleanTracePhase(6, scope String()..AppendF("Clean: delete build dir {}", workspaceBuildDir));
 							var result = Utils.DelTree(workspaceBuildDir);
 							if (result case .Err)
 							{
@@ -13793,6 +13840,10 @@ namespace IDE
 								//result.Exception.ToString(str);
 								Fail(str);
 								//result.Dispose();
+							}
+							else
+							{
+								CleanTracePhase(7, "Clean: delete build dir done");
 							}
 						}
 
@@ -13833,6 +13884,8 @@ namespace IDE
 							}
 						}
 
+						CleanTracePhase(8, "Clean: delete target outputs done");
+
 						if (!deleteFails.IsEmpty)
 						{
 							String str = scope String();
@@ -13855,6 +13908,23 @@ namespace IDE
 						mWantsClean = false;
 						mDbgCompileIdx = -1;
 						mDbgHighestTime = default;
+
+						CleanTracePhase(9, "Clean: done");
+						mCleanTraceActive = false;
+						mCleanTracePhase = 0;
+					}
+					else
+					{
+						CleanTracePhase(3, scope String()..AppendF(
+							"Clean: waiting queues build={} resolve={}{}",
+							mBfBuildCompiler.HasQueuedCommands(),
+							mBfResolveCompiler.HasQueuedCommands(),
+#if IDE_C_SUPPORT
+							scope String()..AppendF(" dep={} clang={}", mDepClang.HasQueuedCommands(), mResolveClang.HasQueuedCommands())
+#else
+							""
+#endif
+						));
 					}
 				}
 

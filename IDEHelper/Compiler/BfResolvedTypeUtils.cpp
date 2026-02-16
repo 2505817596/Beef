@@ -1420,6 +1420,22 @@ void BfMethodInstance::GetIRFunctionInfo(BfModule* module, BfIRType& returnType,
 {
 	BfModule* resolveModule = module->mContext->mUnreifiedModule;
 
+	if ((mMethodInstanceGroup == NULL) || (mMethodInstanceGroup->mOwner == NULL) || (mMethodDef == NULL) || (mReturnType == NULL))
+	{
+		module->Fail("GetIRFunctionInfo called with invalid method instance");
+		auto voidType = module->GetPrimitiveType(BfTypeCode_None);
+		returnType = module->mBfIRBuilder->MapType(voidType);
+		return;
+	}
+
+	if (mMethodInstanceGroup->mOwner->IsDeleting())
+	{
+		module->Fail("GetIRFunctionInfo called on deleting owner type");
+		auto voidType = module->GetPrimitiveType(BfTypeCode_None);
+		returnType = module->mBfIRBuilder->MapType(voidType);
+		return;
+	}
+
 	resolveModule->PopulateType(mReturnType);
 
 	BfTypeCode loweredReturnTypeCode = BfTypeCode_None;
@@ -1463,7 +1479,18 @@ void BfMethodInstance::GetIRFunctionInfo(BfModule* module, BfIRType& returnType,
 				continue;
 			if (mIsClosure)
 			{
-				checkType = module->mCurMethodState->mClosureState->mClosureType;
+				if ((mMethodInfoEx != NULL) && (mMethodInfoEx->mClosureInstanceInfo != NULL) && (mMethodInfoEx->mClosureInstanceInfo->mThisOverride != NULL))
+				{
+					checkType = mMethodInfoEx->mClosureInstanceInfo->mThisOverride;
+				}
+				else if ((module->mCurMethodState != NULL) && (module->mCurMethodState->mClosureState != NULL))
+				{
+					checkType = module->mCurMethodState->mClosureState->mClosureType;
+				}
+				else
+				{
+					checkType = GetOwner();
+				}
 			}
 			else
 			{
@@ -1479,6 +1506,22 @@ void BfMethodInstance::GetIRFunctionInfo(BfModule* module, BfIRType& returnType,
 				continue; // Skip over the explicit 'this'
 
 			checkType = GetParamType(paramIdx);
+		}
+
+		if (checkType == NULL)
+		{
+			const char* methodName = (mMethodDef != NULL) ? mMethodDef->mName.c_str() : "<null>";
+			String ownerNameStr;
+			const char* ownerName = "<null>";
+			if ((mMethodInstanceGroup != NULL) && (mMethodInstanceGroup->mOwner != NULL) && (mMethodInstanceGroup->mOwner->mTypeDef != NULL) &&
+				(mMethodInstanceGroup->mOwner->mTypeDef->mName != NULL))
+			{
+				ownerNameStr = mMethodInstanceGroup->mOwner->mTypeDef->mName->mString;
+				ownerName = ownerNameStr.c_str();
+			}
+			String fatalStr = StrFormat("GetIRFunctionInfo null checkType: method=%s owner=%s paramIdx=%d",
+				methodName, ownerName, paramIdx);
+			BF_FATAL(fatalStr.c_str());
 		}
 
 		/*if (GetParamName(paramIdx) == "this")
@@ -3357,6 +3400,16 @@ BfResolvedTypeSet::~BfResolvedTypeSet()
 {
 }
 
+void BfResolvedTypeSet::SetEntryValue(EntryRef entry, BfType* value, LookupContext* ctx, const char* file, int line)
+{
+	BF_UNUSED(ctx);
+	BF_UNUSED(file);
+	BF_UNUSED(line);
+
+	if (entry)
+		entry->mValue = value;
+}
+
 #define HASH_MIX(origHashVal, newHashVal) ((((origHashVal) << 5) - (origHashVal)) ^ (newHashVal))
 
 #define HASH_VAL_PTR 1
@@ -3466,9 +3519,6 @@ int BfResolvedTypeSet::DoHash(BfType* type, LookupContext* ctx, bool allowRef, i
 		{
 			// Parse attributes?
 			hashVal = HASH_MIX(hashVal, Hash(delegateInfo->mParams[paramIdx], ctx, BfHashFlag_None, hashSeed + 1));
-			String paramName = methodDef->mParams[paramIdx]->mName;
-			int nameHash = (int)Hash64(paramName.c_str(), (int)paramName.length());
-			hashVal = HASH_MIX(hashVal, nameHash);
 		}
 
 		if (delegateInfo->mHasVarArgs)
@@ -4275,7 +4325,6 @@ int BfResolvedTypeSet::DoHash(BfTypeReference* typeRef, LookupContext* ctx, BfHa
 
 			if (fieldType != NULL)
 				hashVal = HASH_MIX(hashVal, Hash(fieldType, ctx, hashFlags, hashSeed + 1));
-			hashVal = HASH_MIX(hashVal, HashNode(param->mNameNode));
 			isFirstParam = true;
 		}
 
@@ -4446,18 +4495,34 @@ int BfResolvedTypeSet::DoHash(BfTypeReference* typeRef, LookupContext* ctx, BfHa
 		}
 		return nameHash ^ HASH_TAG;
 	}
-// 	else if (auto inlineTypeRef = BfNodeDynCastExact<BfInlineTypeReference>(typeRef))
-// 	{
-// 		String name;
-// 		inlineTypeRef->mTypeDeclaration->GetAnonymousName(name);
-// 		int nameHash = (int)Hash64(name.c_str(), (int)name.length());
-// 		return nameHash ^ HASH_TAG;
-// 	}
+	else if (auto inlineTypeRef = BfNodeDynCastExact<BfInlineTypeReference>(typeRef))
+	{
+		auto typeDecl = inlineTypeRef->mTypeDeclaration;
+		if ((typeDecl != NULL) && (typeDecl->mAnonymousName != NULL))
+		{
+			auto nameStr = typeDecl->mAnonymousName;
+			int nameHash = (int)Hash64(nameStr, (int)strlen(nameStr));
+			return nameHash ^ HASH_TAG;
+		}
+
+		auto resolvedType = ctx->mModule->ResolveTypeRef(typeRef, BfPopulateType_Identity, GetResolveFlags(typeRef, ctx, flags));
+		if (resolvedType == NULL)
+		{
+			ctx->mFailed = true;
+			return 0;
+		}
+		return Hash(resolvedType, ctx, BfHashFlag_None, hashSeed);
+	}
 	else
 	{
-		BF_FATAL("Not handled");
+		auto resolvedType = ctx->mModule->ResolveTypeRef(typeRef, BfPopulateType_Identity, GetResolveFlags(typeRef, ctx, flags));
+		if (resolvedType == NULL)
+		{
+			ctx->mFailed = true;
+			return 0;
+		}
+		return Hash(resolvedType, ctx, BfHashFlag_None, hashSeed);
 	}
-	return 0;
 }
 
 int BfResolvedTypeSet::Hash(BfTypeReference* typeRef, LookupContext* ctx, BfHashFlags flags, int hashSeed)
@@ -4559,8 +4624,6 @@ bool BfResolvedTypeSet::Equals(BfType* lhs, BfType* rhs, LookupContext* ctx)
 			for (int paramIdx = 0; paramIdx < lhsDelegateInfo->mParams.size(); paramIdx++)
 			{
 				if (lhsDelegateInfo->mParams[paramIdx] != rhsDelegateInfo->mParams[paramIdx])
-					return false;
-				if (lhsMethodDef->mParams[paramIdx]->mName != rhsMethodDef->mParams[paramIdx]->mName)
 					return false;
 			}
 			return true;
@@ -5142,11 +5205,6 @@ bool BfResolvedTypeSet::Equals(BfType* lhs, BfTypeReference* rhs, LookupContext*
 			if (!Equals(lhsDelegateInfo->mParams[paramIdx], paramTypeRef, ctx))
 				return false;
 			_CheckType(lhsDelegateInfo->mParams[paramIdx]);
-			StringView rhsParamName;
-			if (rhsDelegateType->mParams[paramIdx]->mNameNode != NULL)
-				rhsParamName = rhsDelegateType->mParams[paramIdx]->mNameNode->ToStringView();
-			if (invokeMethodDef->mParams[paramIdx]->mName != rhsParamName)
-				return false;
 			if ((rhsDelegateType->mParams[paramIdx]->mModToken != NULL) && (rhsDelegateType->mParams[paramIdx]->mModToken->mToken == BfToken_Params))
 				rhsHadParams = true;
 		}

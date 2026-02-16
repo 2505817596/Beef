@@ -694,6 +694,8 @@ bool BfMethodDef::CanReflect()
 {
 	if (mMethodDeclaration != NULL)
 		return true;
+	if ((mIsLocalMethod) && (mMethodDeclaration == NULL))
+		return true;
 	if (mMethodType == BfMethodType_Ctor)
 		return true;
 	if ((mDeclaringType->mIsDelegate) || (mDeclaringType->mIsFunction))

@@ -427,6 +427,7 @@ public:
 	Array<BfType*> mTypeGraveyard;
 	Array<BfTypeDef*> mTypeDefGraveyard;
 	Array<BfLocalMethod*> mLocalMethodGraveyard;
+	Array<BfMethodInstanceGroup*> mLambdaMethodGroups;
 
 	Dictionary<String, int> mStringObjectPool;
 	Dictionary<int, BfStringPoolEntry> mStringObjectIdMap;

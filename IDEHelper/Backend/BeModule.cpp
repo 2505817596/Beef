@@ -475,7 +475,7 @@ void BeConstant::GetData(BeConstData& data)
 void BeConstant::HashContent(BeHashContext& hashCtx)
 {
 	hashCtx.Mixin(TypeId);
-	mType->HashReference(hashCtx);
+	HashRef(hashCtx, mType);
 	if (mType->mTypeCode < BeTypeCode_Struct)
 	{
 		hashCtx.Mixin(mUInt64);
@@ -483,7 +483,7 @@ void BeConstant::HashContent(BeHashContext& hashCtx)
 	else if (mType->IsPointer())
 	{
 		if (mTarget != NULL)
-			mTarget->HashReference(hashCtx);
+			HashRef(hashCtx, mTarget);
 		else
 			hashCtx.Mixin(-1);
 	}
@@ -585,7 +585,8 @@ void BeFunction::HashContent(BeHashContext& hashCtx)
 	hashCtx.Mixin(mCallingConv);
 
 	for (auto block : mBlocks)
-		block->HashReference(hashCtx);
+
+		HashRef(hashCtx, block);
 
 	for (auto& param : mParams)
 	{
@@ -598,9 +599,9 @@ void BeFunction::HashContent(BeHashContext& hashCtx)
 		hashCtx.Mixin(param.mByValSize);
 	}
 	if (mDbgFunction != NULL)
-		mDbgFunction->HashReference(hashCtx);
+		HashRef(hashCtx, mDbgFunction);
 	if (mRemapBindVar != NULL)
-		mRemapBindVar->HashReference(hashCtx);
+		HashRef(hashCtx, mRemapBindVar);
 }
 
 void BeBlock::HashContent(BeHashContext& hashCtx)
@@ -609,7 +610,7 @@ void BeBlock::HashContent(BeHashContext& hashCtx)
 	hashCtx.MixinStr(mName);
 	hashCtx.Mixin(mInstructions.size());
 	for (auto inst : mInstructions)
-		inst->HashReference(hashCtx);
+		HashRef(hashCtx, inst);
 }
 
 void BeInst::HashContent(BeHashContext& hashCtx)
@@ -618,7 +619,7 @@ void BeInst::HashContent(BeHashContext& hashCtx)
 	if (mName != NULL)
 		hashCtx.MixinStr(mName);
 	if (mDbgLoc != NULL)
-		mDbgLoc->HashReference(hashCtx);
+		HashRef(hashCtx, mDbgLoc);
 }
 
 BeType* BeNumericCastInst::GetType()
@@ -787,8 +788,8 @@ BeType* BeArgument::GetType()
 void BeDbgDeclareInst::HashInst(BeHashContext& hashCtx)
 {
 	hashCtx.Mixin(TypeId);
-	mDbgVar->HashReference(hashCtx);
-	mValue->HashReference(hashCtx);
+	HashRef(hashCtx, mDbgVar);
+	HashRef(hashCtx, mValue);
 	hashCtx.Mixin(mIsValue);
 }
 
@@ -797,14 +798,14 @@ void BeDbgStructType::HashContent(BeHashContext& hashCtx)
 	hashCtx.Mixin(TypeId);
 	hashCtx.MixinStr(mName);
 	if (mDerivedFrom != NULL)
-		mDerivedFrom->HashReference(hashCtx);
+		HashRef(hashCtx, mDerivedFrom);
 	for (auto member : mMembers)
-		member->HashReference(hashCtx);
+		HashRef(hashCtx, member);
 	for (auto method : mMethods)
-		method->HashReference(hashCtx);
+		HashRef(hashCtx, method);
 	hashCtx.Mixin(mIsFullyDefined);
 	hashCtx.Mixin(mIsStatic);
-	mDefFile->HashReference(hashCtx);
+	HashRef(hashCtx, mDefFile);
 	hashCtx.Mixin(mDefLine);
 }
 
@@ -813,8 +814,8 @@ void BeDbgStructType::HashContent(BeHashContext& hashCtx)
 void BeDbgLexicalBlock::HashContent(BeHashContext& hashCtx)
 {
 	hashCtx.Mixin(TypeId);
-	mFile->HashReference(hashCtx);
-	mScope->HashReference(hashCtx);
+	HashRef(hashCtx, mFile);
+	HashRef(hashCtx, mScope);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -961,17 +962,17 @@ void BeDbgFunction::HashContent(BeHashContext& hashCtx)
 {
 	hashCtx.Mixin(TypeId);
 	if (mFile != NULL)
-		mFile->HashReference(hashCtx);
+		HashRef(hashCtx, mFile);
 	hashCtx.Mixin(mLine);
 	hashCtx.MixinStr(mName);
 	hashCtx.MixinStr(mLinkageName);
-	mType->HashReference(hashCtx);
+	HashRef(hashCtx, mType);
 	for (auto genericArg : mGenericArgs)
-		genericArg->HashReference(hashCtx);
+		HashRef(hashCtx, genericArg);
 	for (auto genericConstValueArgs : mGenericArgs)
-		genericConstValueArgs->HashReference(hashCtx);
+		HashRef(hashCtx, genericConstValueArgs);
 	if (mValue != NULL)
-		mValue->HashReference(hashCtx);
+		HashRef(hashCtx, mValue);
 	hashCtx.Mixin(mIsLocalToUnit);
 	hashCtx.Mixin(mIsStaticMethod);
 	hashCtx.Mixin(mFlags);
@@ -983,7 +984,7 @@ void BeDbgFunction::HashContent(BeHashContext& hashCtx)
 		if (variable == NULL)
 			hashCtx.Mixin(-1);
 		else
-			variable->HashReference(hashCtx);
+			HashRef(hashCtx, variable);
 	}
 	hashCtx.Mixin(mPrologSize);
 	hashCtx.Mixin(mCodeLen);
@@ -1841,7 +1842,7 @@ void BeModule::Hash(BeHashContext& hashCtx)
 		configConst->HashContent(hashCtx);
 
 	if (mDbgModule != NULL)
-		mDbgModule->HashReference(hashCtx);
+		HashRef(hashCtx, mDbgModule);
 
 	if (!mFunctions.IsEmpty())
 	{
@@ -1853,7 +1854,7 @@ void BeModule::Hash(BeHashContext& hashCtx)
 		for (auto& beFunction : mFunctions)
 		{
 			if (!beFunction->mBlocks.IsEmpty())
-				beFunction->HashReference(hashCtx);
+				HashRef(hashCtx, beFunction);
 		}
 	}
 
@@ -1867,7 +1868,7 @@ void BeModule::Hash(BeHashContext& hashCtx)
 		for (auto& beGlobalVar : mGlobalVariables)
 		{
 			if (beGlobalVar->mInitializer != NULL)
-				beGlobalVar->HashReference(hashCtx);
+				HashRef(hashCtx, beGlobalVar);
 		}
 	}
 }
@@ -3669,7 +3670,7 @@ void BeDbgModule::HashContent(BeHashContext & hashCtx)
 		for (auto dbgFunc : unrefFuncs)
 		{
 			if (dbgFunc->mHashId == -1)
-				dbgFunc->HashReference(hashCtx);
+				HashRef(hashCtx, dbgFunc);
 		}
 	}
 
@@ -3695,6 +3696,6 @@ void BeDbgModule::HashContent(BeHashContext & hashCtx)
 		});
 
 		for (auto globalVar : mGlobalVariables)
-			globalVar->HashReference(hashCtx);
+			HashRef(hashCtx, globalVar);
 	}
 }

@@ -323,7 +323,6 @@ void BfGNUMangler::MangleTypeInst(MangleContext& mangleContext, StringImpl& name
 		for (int paramIdx = 0; paramIdx < (int)methodDef->mParams.size(); paramIdx++)
 		{
 			name += "_";
-			name += methodDef->mParams[paramIdx]->mName;
 			if (methodDef->mParams[paramIdx]->mParamKind == BfParamKind_VarArgs)
 			{
 				name += "__varargs";
@@ -1271,7 +1270,6 @@ bool BfMSMangler::FindOrCreateNameSub(MangleContext& mangleContext, StringImpl& 
 			for (int paramIdx = 0; paramIdx < (int)methodDef->mParams.size(); paramIdx++)
 			{
 				name += "_";
-				name += methodDef->mParams[paramIdx]->mName;
 				if (methodDef->mParams[paramIdx]->mParamKind == BfParamKind_VarArgs)
 				{
 					name += "__varargs";

@@ -1027,15 +1027,24 @@ public:
 
 	~BfLambdaInstance()
 	{
-		auto methodDef = mMethodInstance->mMethodDef;
-		delete mMethodInstance;
-		delete methodDef;
+		if (mMethodInstance != NULL)
+		{
+			if (mMethodInstance->mMethodInstanceGroup == NULL)
+			{
+				auto methodDef = mMethodInstance->mMethodDef;
+				delete mMethodInstance;
+				delete methodDef;
+			}
+		}
 
 		if (mDtorMethodInstance != NULL)
 		{
-			auto methodDef = mDtorMethodInstance->mMethodDef;
-			delete mDtorMethodInstance;
-			delete methodDef;
+			if (mDtorMethodInstance->mMethodInstanceGroup == NULL)
+			{
+				auto methodDef = mDtorMethodInstance->mMethodDef;
+				delete mDtorMethodInstance;
+				delete methodDef;
+			}
 		}
 	}
 };
@@ -1573,6 +1582,7 @@ public:
 	Dictionary<BfTypeInstance*, BfIRValue> mClassVDataRefs;
 	Dictionary<BfVDataExtEntry, BfIRValue> mClassVDataExtRefs;
 	Dictionary<BfType*, BfIRValue> mTypeDataRefs;
+	Dictionary<String, BfIRValue> mTypeDataNameRefs;
 	Dictionary<BfType*, BfIRValue> mDbgRawAllocDataRefs;
 	Dictionary<BfMethodInstance*, BfDeferredMethodCallData*> mDeferredMethodCallData;
 	HashSet<int64> mDeferredMethodIds;
@@ -1691,6 +1701,7 @@ public:
 	void GetCustomAttributes(BfCustomAttributes* customAttributes, BfAttributeDirective* attributesDirective, BfAttributeTargets attrType, BfGetCustomAttributesFlags flags = BfGetCustomAttributesFlags_None, BfCaptureInfo* captureInfo = NULL);
 	BfCustomAttributes* GetCustomAttributes(BfAttributeDirective* attributesDirective, BfAttributeTargets attrType, BfGetCustomAttributesFlags flags = BfGetCustomAttributesFlags_None, BfCaptureInfo* captureInfo = NULL);
 	BfCustomAttributes* GetCustomAttributes(BfTypeDef* typeDef);
+	void CopyCustomAttributeConsts(BfCustomAttribute& customAttribute, BfIRConstHolder* targetConstHolder);
 	void FinishAttributeState(BfAttributeState* attributeState);
 	void ProcessTypeInstCustomAttributes(int& packing, bool& isUnion, bool& isCRepr, bool& isOrdered, int& alignOverride, BfType*& underlyingArrayType, int& underlyingArraySize);
 	void ProcessCustomAttributeData();
@@ -2110,7 +2121,7 @@ public:
 	BfIRValue GetClassVDataPtr(BfTypeInstance* typeInstance);
 	BfIRValue CreateClassVDataExtGlobal(BfTypeInstance* declTypeInst, BfTypeInstance* implTypeInst, int startVirtIdx);
 	BfIRValue CreateTypeDataRef(BfType* type, bool forceConstant = false);
-	void EncodeAttributeData(BfTypeInstance* typeInstance, BfType* argType, BfIRValue arg, SizedArrayImpl<uint8>& data, Dictionary<int, int>& usedStringIdMap);
+	void EncodeAttributeData(BfTypeInstance* typeInstance, BfIRConstHolder* constHolder, BfType* argType, BfIRValue arg, SizedArrayImpl<uint8>& data, Dictionary<int, int>& usedStringIdMap);
 	BfIRValue CreateFieldData(BfFieldInstance* fieldInstance, int customAttrIdx);
 	void CreateSlotOfs(BfTypeInstance* typeInstance);
 	BfIRValue GetTypeTypeData(BfType* type, BfCreateTypeDataContext& ctx, bool needsTypeData, bool wantsTypeDecl, bool needsTypeNames, int& typeFlags, int& typeCode);

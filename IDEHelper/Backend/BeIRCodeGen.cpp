@@ -275,9 +275,7 @@ void BeIRCodeGen::Hash(BeHashContext& hashCtx)
 	});
 
 	for (auto beStructType : structHashList)
-	{
-		beStructType->HashReference(hashCtx);
-	}
+		HashRef(hashCtx, beStructType);
 }
 
 bool BeIRCodeGen::IsModuleEmpty()
@@ -943,6 +941,121 @@ void BeIRCodeGen::Read(BeValue*& beValue)
 			BE_MEM_END("ParamType_Const_Array");
 			return;
 		}
+		else if (constType == BfConstType_AggCE)
+		{
+			CMD_PARAM(BeType*, type);
+			CMD_PARAM(int64, ceAddr);
+			(void)ceAddr;
+			auto beConst = mBeModule->mAlloc.Alloc<BeConstant>();
+			beConst->mType = type;
+			beValue = beConst;
+			return;
+		}
+		else if (constType == BfConstType_ArrayZero)
+		{
+			CMD_PARAM(BeType*, elementType);
+			CMD_PARAM(int, count);
+			auto arrayType = mBeContext->CreateSizedArrayType(elementType, count);
+			auto beConst = mBeModule->mAlloc.Alloc<BeConstant>();
+			beConst->mType = arrayType;
+			beValue = beConst;
+			return;
+		}
+		else if (constType == BfConstType_SizedArrayType)
+		{
+			CMD_PARAM(BeType*, elementType);
+			CMD_PARAM(int, count);
+			auto arrayType = mBeContext->CreateSizedArrayType(elementType, count);
+			auto beConst = mBeModule->mAlloc.Alloc<BeConstant>();
+			beConst->mType = arrayType;
+			beValue = beConst;
+			return;
+		}
+		else if (constType == BfConstType_Box)
+		{
+			CMD_PARAM(BeConstant*, target);
+			CMD_PARAM(BeType*, boxedType);
+
+			BeType* boxedElemType = boxedType;
+			if (boxedType->IsPointer())
+				boxedElemType = ((BePointerType*)boxedType)->mElementType;
+
+			BeStructType* structType = NULL;
+			if (boxedElemType->IsStruct())
+				structType = (BeStructType*)boxedElemType;
+			if (structType == NULL)
+			{
+				auto beConst = mBeModule->mAlloc.Alloc<BeConstant>();
+				beConst->mType = boxedType;
+				beValue = beConst;
+				return;
+			}
+
+			auto boxConst = mBeModule->mOwnedValues.Alloc<BeStructConstant>();
+			boxConst->mType = structType;
+
+			for (int i = 0; i < structType->mMembers.mSize; i++)
+			{
+				auto memberType = structType->mMembers[i].mType;
+				BeConstant* memberConst = NULL;
+				if (memberType->IsPointer())
+					memberConst = mBeModule->GetConstantNull((BePointerType*)memberType);
+				else if (memberType->IsComposite())
+				{
+					auto undefConst = mBeModule->mOwnedValues.Alloc<BeUndefConstant>();
+					undefConst->mType = memberType;
+					memberConst = undefConst;
+				}
+				else
+					memberConst = mBeModule->GetConstant(memberType, (int64)0);
+
+				boxConst->mMemberValues.Add(memberConst);
+			}
+
+			if (structType->mMembers.mSize > 0)
+			{
+				int valueIdx = structType->mMembers.mSize - 1;
+				auto memberType = structType->mMembers[valueIdx].mType;
+				BeConstant* memberVal = target;
+				if (memberVal->GetType() != memberType)
+				{
+					if (memberVal->GetType()->IsPointer() && memberType->IsPointer())
+					{
+						auto castedVal = mBeModule->mAlloc.Alloc<BeCastConstant>();
+						castedVal->mType = memberType;
+						castedVal->mTarget = memberVal;
+						memberVal = castedVal;
+					}
+					else
+					{
+						memberVal = boxConst->mMemberValues[valueIdx];
+					}
+				}
+				boxConst->mMemberValues[valueIdx] = memberVal;
+			}
+
+			if (boxedType->IsPointer())
+			{
+				static int sBoxConstIdx = 0;
+				auto globalVariable = mBeModule->mGlobalVariables.Alloc();
+				globalVariable->mModule = mBeModule;
+				globalVariable->mType = structType;
+				globalVariable->mIsConstant = true;
+				globalVariable->mLinkageType = BfIRLinkageType_Internal;
+				globalVariable->mStorageKind = BfIRStorageKind_Normal;
+				globalVariable->mInitializer = boxConst;
+				globalVariable->mName = StrFormat("__ConstBox__%d", sBoxConstIdx++);
+				globalVariable->mIsTLS = false;
+				globalVariable->mAlign = structType->mAlign;
+				globalVariable->mUnnamedAddr = true;
+				beValue = globalVariable;
+			}
+			else
+			{
+				beValue = boxConst;
+			}
+			return;
+		}
 		else if (constType == BfConstType_ArrayZero8)
 		{
 			CMD_PARAM(int, count);
@@ -1020,7 +1133,7 @@ void BeIRCodeGen::Read(BeValue*& beValue)
 			beValue = mBeModule->GetConstantNull((BePointerType*)nullType);
 			BE_MEM_END("ParamType_Const_NullPtr");
 		}
-		else if (BfIRBuilder::IsInt(typeCode))
+		else if ((BfIRBuilder::IsInt(typeCode)) || (typeCode == BfTypeCode_CharPtr) || (typeCode == BfTypeCode_StringId))
 		{
 			int64 intVal = ReadSLEB128();
 			auto constVal = mBeModule->GetConstant(llvmConstType, intVal);

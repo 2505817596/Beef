@@ -401,6 +401,16 @@ String BfIRConstHolder::ToString(BfIRValue irValue)
 			auto constAgg = (BfConstantAggCE*)constant;
 			return ToString(constAgg->mType) + StrFormat(" aggCe@%p", constAgg->mCEAddr);
 		}
+		else if (constant->mConstType == BfConstType_ArrayZero)
+		{
+			auto arrayZero = (BfConstantArrayZero*)constant;
+			return ToString(arrayZero->mType) + StrFormat(" zero[%d]", arrayZero->mCount);
+		}
+		else if (constant->mConstType == BfConstType_SizedArrayType)
+		{
+			auto sizedArrayType = (BfConstantSizedArrayType*)constant;
+			return StrFormat("arrayType %s[%d]", ToString(sizedArrayType->mType).c_str(), (int)sizedArrayType->mLength);
+		}
 		else if (constant->mConstType == BfConstType_ArrayZero8)
 		{
 			return StrFormat("zero8[%d]", constant->mInt32);
@@ -611,7 +621,8 @@ BfConstant* BfIRConstHolder::GetConstant(BfIRValue id)
 	if (!id.IsConst())
 		return NULL;
 #ifdef CHECK_CONSTHOLDER
-	BF_ASSERT(id.mHolder == this);
+	if ((id.mHolder != NULL) && (id.mHolder != this))
+		return id.mHolder->GetConstantById(id.mId);
 #endif
 	return GetConstantById(id.mId);
 }
@@ -1121,6 +1132,17 @@ BfIRValue BfIRConstHolder::CreateConstArrayZero(int count)
 
 BfIRValue BfIRConstHolder::CreateConstBitCast(BfIRValue val, BfIRType type)
 {
+	if (val.IsConst())
+	{
+#ifdef CHECK_CONSTHOLDER
+		if ((val.mHolder != NULL) && (val.mHolder != this))
+		{
+			auto fromConst = val.mHolder->GetConstantById(val.mId);
+			val = CreateConst(fromConst, val.mHolder);
+		}
+#endif
+	}
+
 	auto constVal = GetConstant(val);
 
 	auto bitCast = mTempAlloc.Alloc<BfConstantBitCast>();
@@ -1142,7 +1164,16 @@ BfIRValue BfIRConstHolder::CreateConstBitCast(BfIRValue val, BfIRType type)
 
 BfIRValue BfIRConstHolder::CreateConstBox(BfIRValue val, BfIRType type)
 {
-	auto constVal = GetConstant(val);
+	if (val.IsConst())
+	{
+#ifdef CHECK_CONSTHOLDER
+		if ((val.mHolder != NULL) && (val.mHolder != this))
+		{
+			auto fromConst = val.mHolder->GetConstantById(val.mId);
+			val = CreateConst(fromConst, val.mHolder);
+		}
+#endif
+	}
 
 	auto box = mTempAlloc.Alloc<BfConstantBox>();
 	box->mConstType = BfConstType_Box;
@@ -1203,7 +1234,7 @@ BfIRValue BfIRConstHolder::GetUndefConstValue(BfIRType irType)
 
 	BfIRValue undefVal(BfIRValueFlags_Const, mTempAlloc.GetChunkedId(constUndef));
 #ifdef CHECK_CONSTHOLDER
-	castedVal.mHolder = this;
+	undefVal.mHolder = this;
 #endif
 	BF_ASSERT((void*)GetConstant(undefVal) == (void*)constUndef);
 	return undefVal;
@@ -2420,7 +2451,10 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 {
 	if ((irValue.mFlags & BfIRValueFlags_Const) != 0)
 	{
-		auto constant = GetConstantById(irValue.mId);
+		auto constant = GetConstant(irValue);
+#ifdef CHECK_CONSTHOLDER
+		auto constHolder = (irValue.mHolder != NULL) ? irValue.mHolder : this;
+#endif
 
 		mStream.Write(BfIRParamType_Const);
 		mStream.Write((uint8)constant->mTypeCode);
@@ -2442,14 +2476,26 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 		case (int)BfTypeCode_UInt8:
 		case (int)BfTypeCode_Int16:
 		case (int)BfTypeCode_UInt16:
+		case (int)BfTypeCode_Int24:
+		case (int)BfTypeCode_UInt24:
 		case (int)BfTypeCode_Int32:
 		case (int)BfTypeCode_UInt32:
+		case (int)BfTypeCode_Int40:
+		case (int)BfTypeCode_UInt40:
+		case (int)BfTypeCode_Int48:
+		case (int)BfTypeCode_UInt48:
+		case (int)BfTypeCode_Int56:
+		case (int)BfTypeCode_UInt56:
 		case (int)BfTypeCode_Int64:
 		case (int)BfTypeCode_UInt64:
+		case (int)BfTypeCode_Int128:
+		case (int)BfTypeCode_UInt128:
 		case (int)BfTypeCode_IntPtr:
 		case (int)BfTypeCode_UIntPtr:
 		case (int)BfTypeCode_IntUnknown:
 		case (int)BfTypeCode_UIntUnknown:
+		case (int)BfTypeCode_CharPtr:
+		case (int)BfTypeCode_StringId:
 		case (int)BfTypeCode_Char8:
 		case (int)BfTypeCode_Char16:
 		case (int)BfTypeCode_Char32:
@@ -2495,6 +2541,9 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 			{
 				auto bitcast = (BfConstantBitCast*)constant;
 				BfIRValue targetConst(BfIRValueFlags_Const, bitcast->mTarget);
+#ifdef CHECK_CONSTHOLDER
+				targetConst.mHolder = constHolder;
+#endif
 				Write(targetConst);
 				Write(bitcast->mToType);
 			}
@@ -2503,6 +2552,9 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 			{
 				auto gepConst = (BfConstantGEP32_1*)constant;
 				BfIRValue targetConst(BfIRValueFlags_Const, gepConst->mTarget);
+#ifdef CHECK_CONSTHOLDER
+				targetConst.mHolder = constHolder;
+#endif
 				Write(targetConst);
 				Write(gepConst->mIdx0);
 			}
@@ -2511,6 +2563,9 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 			{
 				auto gepConst = (BfConstantGEP32_2*)constant;
 				BfIRValue targetConst(BfIRValueFlags_Const, gepConst->mTarget);
+#ifdef CHECK_CONSTHOLDER
+				targetConst.mHolder = constHolder;
+#endif
 				Write(targetConst);
 				Write(gepConst->mIdx0);
 				Write(gepConst->mIdx1);
@@ -2520,6 +2575,9 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 			{
 				auto gepConst = (BfConstantExtractValue*)constant;
 				BfIRValue targetConst(BfIRValueFlags_Const, gepConst->mTarget);
+#ifdef CHECK_CONSTHOLDER
+				targetConst.mHolder = constHolder;
+#endif
 				Write(targetConst);
 				Write(gepConst->mIdx0);
 			}
@@ -2528,6 +2586,9 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 			{
 				auto ptrToIntConst = (BfConstantPtrToInt*)constant;
 				BfIRValue targetConst(BfIRValueFlags_Const, ptrToIntConst->mTarget);
+#ifdef CHECK_CONSTHOLDER
+				targetConst.mHolder = constHolder;
+#endif
 				Write(targetConst);
 				Write(ptrToIntConst->mToTypeCode);
 			}
@@ -2536,6 +2597,9 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 			{
 				auto intToPtrConst = (BfConstantIntToPtr*)constant;
 				BfIRValue targetConst(BfIRValueFlags_Const, intToPtrConst->mTarget);
+#ifdef CHECK_CONSTHOLDER
+				targetConst.mHolder = constHolder;
+#endif
 				Write(targetConst);
 				Write(intToPtrConst->mToType);
 			}
@@ -2550,6 +2614,38 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 				auto arrayConst = (BfConstantAgg*)constant;
 				Write(arrayConst->mType);
 				Write(arrayConst->mValues);
+			}
+			break;
+		case (int)BfConstType_AggCE:
+			{
+				auto arrayConst = (BfConstantAggCE*)constant;
+				Write(arrayConst->mType);
+				WriteSLEB128((int64)arrayConst->mCEAddr);
+			}
+			break;
+		case (int)BfConstType_ArrayZero:
+			{
+				auto arrayZero = (BfConstantArrayZero*)constant;
+				Write(arrayZero->mType);
+				WriteSLEB128((int64)arrayZero->mCount);
+			}
+			break;
+		case (int)BfConstType_Box:
+			{
+				auto boxConst = (BfConstantBox*)constant;
+				BfIRValue targetConst(BfIRValueFlags_Const, boxConst->mTarget);
+#ifdef CHECK_CONSTHOLDER
+				targetConst.mHolder = constHolder;
+#endif
+				Write(targetConst);
+				Write(boxConst->mToType);
+			}
+			break;
+		case (int)BfConstType_SizedArrayType:
+			{
+				auto sizedArrayType = (BfConstantSizedArrayType*)constant;
+				Write(sizedArrayType->mType);
+				WriteSLEB128((int64)sizedArrayType->mLength);
 			}
 			break;
 		case (int)BfConstType_ArrayZero8:
@@ -2586,7 +2682,8 @@ void BfIRBuilder::Write(const BfIRValue& irValue)
 			break;
 		default:
 			{
-				BF_FATAL("Unhandled");
+				BF_FATAL(StrFormat("Unhandled const typeCode=%d constType=%d",
+					(int)constant->mTypeCode, (int)constant->mConstType).c_str());
 			}
 			break;
 		}

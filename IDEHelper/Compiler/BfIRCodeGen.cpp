@@ -1367,6 +1367,122 @@ void BfIRCodeGen::Read(BfIRTypedValue& typedValue, BfIRCodeGenEntry** codeGenEnt
 			FixTypedValue(typedValue);
 			return;
 		}
+		else if (constType == BfConstType_AggCE)
+		{
+			BfIRTypeEx* type = NULL;
+			Read(type, NULL);
+			CMD_PARAM(int64, ceAddr);
+			(void)ceAddr;
+			typedValue.mTypeEx = type;
+			typedValue.mValue = llvm::Constant::getNullValue(type->mLLVMType);
+			FixTypedValue(typedValue);
+			return;
+		}
+		else if (constType == BfConstType_ArrayZero)
+		{
+			BfIRTypeEx* elemType = NULL;
+			Read(elemType, NULL);
+			CMD_PARAM(int, count);
+			auto arrayType = llvm::ArrayType::get(elemType->mLLVMType, count);
+			typedValue.mTypeEx = GetTypeEx(arrayType);
+			typedValue.mValue = llvm::ConstantAggregateZero::get(arrayType);
+			FixTypedValue(typedValue);
+			return;
+		}
+		else if (constType == BfConstType_SizedArrayType)
+		{
+			BfIRTypeEx* elemType = NULL;
+			Read(elemType, NULL);
+			CMD_PARAM(int, count);
+			auto arrayType = llvm::ArrayType::get(elemType->mLLVMType, count);
+			typedValue.mTypeEx = GetTypeEx(arrayType);
+			typedValue.mValue = llvm::ConstantAggregateZero::get(arrayType);
+			FixTypedValue(typedValue);
+			return;
+		}
+		else if (constType == BfConstType_Box)
+		{
+			CMD_PARAM(llvm::Constant*, target);
+			CMD_PARAM(BfIRTypeEx*, boxedType);
+
+			llvm::Type* boxedLLVMType = boxedType->mLLVMType;
+			llvm::Constant* boxedConst = NULL;
+			llvm::Type* boxedElemType = boxedLLVMType;
+
+			if (boxedLLVMType->isPointerTy())
+				boxedElemType = GetLLVMPointerElementType(boxedType);
+
+			if (auto structType = llvm::dyn_cast<llvm::StructType>(boxedElemType))
+			{
+				llvm::SmallVector<llvm::Constant*, 8> values;
+				values.resize(structType->getNumElements());
+				for (unsigned i = 0; i < structType->getNumElements(); i++)
+					values[i] = llvm::Constant::getNullValue(structType->getElementType(i));
+
+				if (!values.empty())
+				{
+					unsigned valueIdx = (unsigned)values.size() - 1;
+					llvm::Type* memberType = structType->getElementType(valueIdx);
+					llvm::Constant* memberVal = target;
+
+					if (memberVal->getType() != memberType)
+					{
+						if (memberVal->getType()->isPointerTy() && memberType->isPointerTy())
+							memberVal = llvm::ConstantExpr::getBitCast(memberVal, memberType);
+						else if (memberVal->getType()->isIntegerTy() && memberType->isIntegerTy())
+						{
+							auto fromIntType = llvm::cast<llvm::IntegerType>(memberVal->getType());
+							auto toIntType = llvm::cast<llvm::IntegerType>(memberType);
+							if (fromIntType->getBitWidth() < toIntType->getBitWidth())
+								memberVal = llvm::ConstantExpr::getCast(llvm::Instruction::ZExt, memberVal, memberType);
+							else if (fromIntType->getBitWidth() > toIntType->getBitWidth())
+								memberVal = llvm::ConstantExpr::getCast(llvm::Instruction::Trunc, memberVal, memberType);
+						}
+						else if (memberVal->getType()->isPointerTy() && memberType->isIntegerTy())
+							memberVal = llvm::ConstantExpr::getPtrToInt(memberVal, memberType);
+						else if (memberVal->getType()->isIntegerTy() && memberType->isPointerTy())
+							memberVal = llvm::ConstantExpr::getIntToPtr(memberVal, memberType);
+						else
+							memberVal = llvm::Constant::getNullValue(memberType);
+					}
+
+					values[valueIdx] = memberVal;
+				}
+
+				boxedConst = llvm::ConstantStruct::get(structType, values);
+			}
+
+			if (boxedConst == NULL)
+			{
+				typedValue.mTypeEx = boxedType;
+				typedValue.mValue = llvm::Constant::getNullValue(boxedLLVMType);
+				FixTypedValue(typedValue);
+				return;
+			}
+
+			if (boxedLLVMType->isPointerTy())
+			{
+				auto globalVariable = new llvm::GlobalVariable(
+					*mLLVMModule,
+					boxedElemType,
+					true,
+					llvm::GlobalValue::PrivateLinkage,
+					boxedConst,
+					StrFormat("__ConstBox__%d", mConstValIdx++).c_str(),
+					NULL,
+					llvm::GlobalValue::NotThreadLocal);
+				typedValue.mTypeEx = boxedType;
+				typedValue.mValue = globalVariable;
+			}
+			else
+			{
+				typedValue.mTypeEx = boxedType;
+				typedValue.mValue = boxedConst;
+			}
+
+			FixTypedValue(typedValue);
+			return;
+		}
 		else if (constType == BfConstType_Undef)
 		{
 			CMD_PARAM(BfIRTypeEx*, type);
@@ -1422,7 +1538,7 @@ void BfIRCodeGen::Read(BfIRTypedValue& typedValue, BfIRCodeGenEntry** codeGenEnt
 			else
 				typedValue.mValue = llvm::ConstantPointerNull::get((llvm::PointerType*)llvmConstType);
 		}
-		else if (BfIRBuilder::IsInt(typeCode))
+		else if ((BfIRBuilder::IsInt(typeCode)) || (typeCode == BfTypeCode_CharPtr) || (typeCode == BfTypeCode_StringId))
 		{
 			int64 intVal = ReadSLEB128();
 			auto constVal = llvm::ConstantInt::get(llvmConstType, intVal);

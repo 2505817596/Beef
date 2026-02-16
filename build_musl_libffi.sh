@@ -4,6 +4,7 @@ LIBFFI=/cygdrive/d/Beef-master/Beef/BeefySysLib/third_party/libffi
 TARGET=${TARGET:-x86_64-unknown-linux-musl}
 HOST=${HOST:-$TARGET}
 ZIG_TARGET=${ZIG_TARGET:-x86_64-linux-musl}
+export BEEF_ZIG_TARGET=${BEEF_ZIG_TARGET:-$ZIG_TARGET}
 FFI_ARCH=${FFI_ARCH:-x86}
 BUILD=$LIBFFI/build_$TARGET
 PREFIX=$LIBFFI/$TARGET

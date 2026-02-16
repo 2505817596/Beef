@@ -1494,6 +1494,7 @@ void BfModule::StartExtension()
 	mClassVDataExtRefs.Clear();
 	for (auto& kv : mTypeDataRefs)
 		kv.mValue = BfIRValue();
+	mTypeDataNameRefs.Clear();
 	mDbgRawAllocDataRefs.Clear();
 	mStringCharPtrPool.Clear();
 	mStringObjectPool.Clear();
@@ -5956,7 +5957,7 @@ BfIRValue BfModule::CreateTypeDataRef(BfType* type, bool forceConstant)
 	return mBfIRBuilder->CreateTypeOf(type, globalVariable);
 }
 
-void BfModule::EncodeAttributeData(BfTypeInstance* typeInstance, BfType* argType, BfIRValue arg, SizedArrayImpl<uint8>& data, Dictionary<int, int>& usedStringIdMap)
+void BfModule::EncodeAttributeData(BfTypeInstance* typeInstance, BfIRConstHolder* constHolder, BfType* argType, BfIRValue arg, SizedArrayImpl<uint8>& data, Dictionary<int, int>& usedStringIdMap)
 {
 #define PUSH_INT8(val) data.push_back((uint8)val)
 #define PUSH_INT16(val) { data.push_back(val & 0xFF); data.push_back((val >> 8) & 0xFF); }
@@ -5964,7 +5965,15 @@ void BfModule::EncodeAttributeData(BfTypeInstance* typeInstance, BfType* argType
 #define PUSH_INT64(val) { data.push_back(val & 0xFF); data.push_back((val >> 8) & 0xFF); data.push_back((val >> 16) & 0xFF); data.push_back((val >> 24) & 0xFF); \
 			data.push_back((val >> 32) & 0xFF); data.push_back((val >> 40) & 0xFF); data.push_back((val >> 48) & 0xFF); data.push_back((val >> 56) & 0xFF); }
 
-	auto constant = typeInstance->mConstHolder->GetConstant(arg);
+	if (constHolder == NULL)
+	{
+		if (typeInstance != NULL)
+			constHolder = typeInstance->mConstHolder;
+		if (constHolder == NULL)
+			constHolder = mBfIRBuilder;
+	}
+
+	auto constant = constHolder->GetConstant(arg);
 	bool handled = false;
 
 	if (constant == NULL)
@@ -6024,7 +6033,7 @@ void BfModule::EncodeAttributeData(BfTypeInstance* typeInstance, BfType* argType
 	if (constant->mConstType == BfConstType_BitCast)
 	{
 		auto bitcast = (BfConstantBitCast*)constant;
-		EncodeAttributeData(typeInstance, argType, BfIRValue(BfIRValueFlags_Const, bitcast->mTarget), data, usedStringIdMap);
+		EncodeAttributeData(typeInstance, constHolder, argType, BfIRValue(BfIRValueFlags_Const, bitcast->mTarget), data, usedStringIdMap);
 		return;
 	}
 
@@ -6575,6 +6584,13 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 		typeDataName += "sBfTypeData.";
 		BfMangler::Mangle(typeDataName, mCompiler->GetMangleKind(), type, mContext->mScratchModule);
 	}
+
+	BfIRValue existingTypeDataVar;
+	if (mTypeDataNameRefs.TryGetValue(typeDataName, &existingTypeDataVar))
+	{
+		mTypeDataRefs[type] = existingTypeDataVar;
+		return existingTypeDataVar;
+	}
 	
 	int virtSlotIdx = -1;
 	if ((typeInstance != NULL) && (typeInstance->mSlotNum >= 0))
@@ -6727,6 +6743,9 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 		}
 		else
 			typeDataVar = mBfIRBuilder->CreateConstNull(mBfIRBuilder->MapType(mContext->mBfTypeType));
+
+		if ((needsTypeData) && (typeDataVar))
+			mTypeDataNameRefs[typeDataName] = typeDataVar;
 
 		mTypeDataRefs[type] = typeDataVar;
 		return typeDataVar;
@@ -7441,12 +7460,36 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 			PUSH_INT16(ctorIdx);
 
 			auto ctorMethodInstance = GetRawMethodInstanceAtIdx(attr->mType, attr->mCtor->mIdx);
+			if ((ctorMethodInstance != NULL) && ((int)ctorMethodInstance->mParams.size() < (int)attr->mCtorArgs.size()))
+				ctorMethodInstance = GetMethodInstance(attr->mType, attr->mCtor, BfTypeVector()).mMethodInstance;
+
+			if (ctorMethodInstance == NULL)
+			{
+				Fail("Unable to resolve attribute constructor method", attr->mRef);
+				continue;
+			}
+
+			int ctorParamCount = (int)ctorMethodInstance->mParams.size();
+			if (ctorParamCount < (int)attr->mCtorArgs.size())
+				Fail(StrFormat("Attribute constructor parameter count mismatch (args=%d params=%d)", attr->mCtorArgs.size(), ctorParamCount), attr->mRef);
+
 			int argIdx = 0;
+
+			BfIRConstHolder* attrConstHolder = attr->mConstHolder;
+			if (attrConstHolder == NULL)
+			{
+				if (typeInstance != NULL)
+					attrConstHolder = typeInstance->mConstHolder;
+				if (attrConstHolder == NULL)
+					attrConstHolder = mBfIRBuilder;
+			}
 
 			for (auto arg : attr->mCtorArgs)
 			{
+				if (argIdx >= ctorParamCount)
+					break;
 				auto argType = ctorMethodInstance->GetParamType(argIdx);
-				EncodeAttributeData(typeInstance, argType, arg, data, ctx.mUsedStringIdMap);
+				EncodeAttributeData(typeInstance, attrConstHolder, argType, arg, data, ctx.mUsedStringIdMap);
 				argIdx++;
 			}
 
@@ -7741,6 +7784,39 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 		BfMethodCustomAttributes* mMethodCustomAttributes;
 	};
 
+	Dictionary<BfMethodDef*, BfMethodInstanceGroup*> localMethodGroupMap;
+	if (mContext != NULL)
+	{
+		for (auto localMethod : mContext->mLocalMethodGraveyard)
+		{
+			if ((localMethod == NULL) || (localMethod->mMethodDef == NULL) || (localMethod->mMethodInstanceGroup == NULL))
+				continue;
+			if (!localMethod->mMethodDef->mIsLocalMethod)
+				continue;
+			if (localMethod->mLambdaBindExpr == NULL)
+				continue;
+			if ((localMethod->mMethodInstanceGroup->mOwner == NULL) || (localMethod->mMethodInstanceGroup->mOwner != typeInstance))
+				continue;
+			if (localMethod->mMethodDef->mDeclaringType != typeDef)
+				continue;
+			localMethodGroupMap[localMethod->mMethodDef] = localMethod->mMethodInstanceGroup;
+		}
+	}
+
+	Dictionary<BfMethodDef*, BfMethodInstanceGroup*> lambdaMethodGroupMap;
+	if (mContext != NULL)
+	{
+		for (auto lambdaGroup : mContext->mLambdaMethodGroups)
+		{
+			if ((lambdaGroup == NULL) || (lambdaGroup->mDefault == NULL) || (lambdaGroup->mDefault->mMethodDef == NULL))
+				continue;
+			auto methodDef = lambdaGroup->mDefault->mMethodDef;
+			if (methodDef->mDeclaringType != typeDef)
+				continue;
+			lambdaMethodGroupMap[methodDef] = lambdaGroup;
+		}
+	}
+
 	Array<_SortedMethodInfo> sortedMethodList;
 
 	SizedArray<BfIRValue, 16> methodTypes;
@@ -7845,6 +7921,79 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 		sortedMethodList.Add({ methodDef, methodCustomAttributes });
 	}
 
+	bool allowLocalMethodReflect = reflectIncludeAllMethods ||
+		((reflectKind & (BfReflectKind_Methods | BfReflectKind_User | BfReflectKind_StaticMethods | BfReflectKind_Constructors | BfReflectKind_DefaultConstructor)) != 0);
+
+	for (auto& kv : localMethodGroupMap)
+	{
+		if (!needsTypeData)
+			break;
+
+		if (!allowLocalMethodReflect)
+			continue;
+
+		auto methodDef = kv.mKey;
+		auto methodInstanceGroup = kv.mValue;
+		if (methodDef->mIsNoReflect)
+			continue;
+		if (methodDef->mHasComptime)
+			continue;
+		if ((methodInstanceGroup == NULL) || (!methodInstanceGroup->IsImplemented()))
+			continue;
+		auto defaultMethod = methodInstanceGroup->mDefault;
+		if (defaultMethod == NULL)
+			continue;
+		if (defaultMethod->mIsUnspecialized)
+			continue;
+		if (!defaultMethod->mIsReified)
+			continue;
+		if ((defaultMethod->mChainType == BfMethodChainType_ChainMember) || (defaultMethod->mChainType == BfMethodChainType_ChainSkip))
+			continue;
+		if (defaultMethod->mMethodDef->mMethodType == BfMethodType_CtorNoBody)
+			continue;
+		if (!defaultMethod->mMethodDef->CanReflect())
+			continue;
+
+		BfMethodCustomAttributes* methodCustomAttributes = NULL;
+		if ((defaultMethod->mMethodInfoEx != NULL) && (defaultMethod->mMethodInfoEx->mMethodCustomAttributes != NULL))
+			methodCustomAttributes = defaultMethod->mMethodInfoEx->mMethodCustomAttributes;
+
+		sortedMethodList.Add({ methodDef, methodCustomAttributes });
+	}
+
+	for (auto& kv : lambdaMethodGroupMap)
+	{
+		if (!needsTypeData)
+			break;
+
+		if (!allowLocalMethodReflect)
+			continue;
+
+		auto methodDef = kv.mKey;
+		auto methodInstanceGroup = kv.mValue;
+		auto defaultMethod = methodInstanceGroup->mDefault;
+		if (methodDef->mIsNoReflect)
+			continue;
+		if (methodDef->mHasComptime)
+			continue;
+		if ((methodInstanceGroup == NULL) || (defaultMethod == NULL))
+			continue;
+		if (defaultMethod->mIsUnspecialized)
+			continue;
+		if (!defaultMethod->mIsReified)
+			continue;
+		if ((defaultMethod->mChainType == BfMethodChainType_ChainMember) || (defaultMethod->mChainType == BfMethodChainType_ChainSkip))
+			continue;
+		if (defaultMethod->mMethodDef->mMethodType == BfMethodType_CtorNoBody)
+			continue;
+
+		BfMethodCustomAttributes* methodCustomAttributes = NULL;
+		if ((defaultMethod->mMethodInfoEx != NULL) && (defaultMethod->mMethodInfoEx->mMethodCustomAttributes != NULL))
+			methodCustomAttributes = defaultMethod->mMethodInfoEx->mMethodCustomAttributes;
+
+		sortedMethodList.Add({ methodDef, methodCustomAttributes });
+	}
+
 	auto _GetMethodKind = [](BfMethodDef* methodDef)
 	{
 		if (methodDef->mMethodType == BfMethodType_Ctor)
@@ -7864,24 +8013,51 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 			return lhs.mMethodDef->mIdx < rhs.mMethodDef->mIdx;
 		});
 
+	int localParamDataIdx = 0;
 	for (auto& methodInfo : sortedMethodList)
 	{
 		auto methodDef = methodInfo.mMethodDef;
 		int methodIdx = methodDef->mIdx;
-		auto methodInstanceGroup = &typeInstance->mMethodInstanceGroups[methodIdx];
+		int methodDataIdx = methodIdx;
+		if (methodDef->mIsLocalMethod)
+			methodDataIdx = -1;
+		BfMethodInstanceGroup* methodInstanceGroup = NULL;
+		bool isLambdaMethod = false;
+		if (methodDef->mIsLocalMethod)
+		{
+			if (!localMethodGroupMap.TryGetValue(methodDef, &methodInstanceGroup))
+				continue;
+		}
+		else if (lambdaMethodGroupMap.TryGetValue(methodDef, &methodInstanceGroup))
+		{
+			isLambdaMethod = true;
+			methodDataIdx = -1;
+		}
+		else
+		{
+			methodInstanceGroup = &typeInstance->mMethodInstanceGroups[methodIdx];
+		}
 		auto defaultMethod = methodInstanceGroup->mDefault;
 
 		BfModuleMethodInstance moduleMethodInstance;
 		BfIRValue funcVal = voidPtrNull;
 
-		if (((!typeInstance->IsBoxed()) || (!methodDef->mIsStatic)) &&
+		bool canReferenceFunc = true;
+		if ((methodDef->mIsLocalMethod) || (isLambdaMethod))
+			canReferenceFunc = (defaultMethod->mIRFunction) && (!defaultMethod->mIRFunction.IsFake());
+
+		if (canReferenceFunc &&
+			((!typeInstance->IsBoxed()) || (!methodDef->mIsStatic)) &&
 			(!typeInstance->IsUnspecializedType()) &&
 			(methodDef->mMethodType != BfMethodType_Ignore) &&
 			(methodDef->mMethodType != BfMethodType_Mixin) &&
 			(!methodDef->mIsAbstract) &&
 			(methodDef->mGenericParams.size() == 0))
 		{
-			moduleMethodInstance = GetMethodInstanceAtIdx(typeInstance, methodIdx, NULL, BfGetMethodInstanceFlag_NoInline);
+			if (methodDef->mIsLocalMethod || isLambdaMethod)
+				moduleMethodInstance = ReferenceExternalMethodInstance(defaultMethod, BfGetMethodInstanceFlag_NoInline);
+			else
+				moduleMethodInstance = GetMethodInstanceAtIdx(typeInstance, methodIdx, NULL, BfGetMethodInstanceFlag_NoInline);
 			if (moduleMethodInstance.mFunc)
 				funcVal = mBfIRBuilder->CreateBitCast(moduleMethodInstance.mFunc, voidPtrIRType);
 		}
@@ -7943,11 +8119,17 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 		BfIRValue paramsVal;
 		if (paramVals.size() > 0)
 		{
+			String paramDataName;
+			if (methodDef->mIsLocalMethod || isLambdaMethod)
+				paramDataName = typeDataName + StrFormat(".lparams%d", localParamDataIdx++);
+			else
+				paramDataName = typeDataName + StrFormat(".params%d", methodIdx);
+
 			BfIRType paramDataArrayType = mBfIRBuilder->GetSizedArrayType(mBfIRBuilder->MapType(reflectParamDataType, BfIRPopulateType_Full), (int)paramVals.size());
 			BfIRValue paramDataConst = mBfIRBuilder->CreateConstAgg_Value(paramDataArrayType, paramVals);
 
 			BfIRValue paramDataArray = mBfIRBuilder->CreateGlobalVariable(paramDataArrayType, true, BfIRLinkageType_Internal,
-				paramDataConst, typeDataName + StrFormat(".params%d", methodIdx));
+				paramDataConst, paramDataName);
 			paramsVal = mBfIRBuilder->CreateBitCast(paramDataArray, mBfIRBuilder->MapType(reflectParamDataPtrType));
 		}
 		else
@@ -8000,7 +8182,7 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 				GetConstValue(defaultMethod->mReturnType->mTypeId, typeIdType),
 				GetConstValue((int)paramVals.size(), shortType),
 				GetConstValue(methodFlags, intType),
-				GetConstValue(methodIdx, intType),
+				GetConstValue(methodDataIdx, intType),
 				GetConstValue(vDataVal, intType),
 				GetConstValue(customAttrIdx, intType),
 				GetConstValue(returnCustomAttrIdx, intType),
@@ -8265,6 +8447,9 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 		typeDataVar = mBfIRBuilder->CreateConstNull(mBfIRBuilder->MapType(mContext->mBfTypeType));
 	}
 	typeDataVar = mBfIRBuilder->CreateBitCast(typeDataVar, mBfIRBuilder->MapType(mContext->mBfTypeType));
+
+	if ((needsTypeData) && (typeDataVar))
+		mTypeDataNameRefs[typeDataName] = typeDataVar;
 
 	mTypeDataRefs[typeInstance] = typeDataVar;
 
@@ -9365,7 +9550,7 @@ BfGenericParamType* BfModule::GetGenericParamType(BfGenericParamKind paramKind, 
 	BfResolvedTypeSet::EntryRef typeEntry;
 	auto inserted = mContext->mResolvedTypes.Insert(genericParamType, &lookupCtx, &typeEntry);
 	BF_ASSERT(inserted);
-	typeEntry->mValue = genericParamType;
+	mContext->mResolvedTypes.SetEntryValue(typeEntry, genericParamType, &lookupCtx, __FILE__, __LINE__);
 
 	return genericParamType;
 }
@@ -12323,6 +12508,13 @@ void BfModule::CurrentAddToConstHolder(BfIRValue& irVal)
 void BfModule::ClearConstData()
 {
 	mBfIRBuilder->ClearConstData();
+	mFuncReferences.Clear();
+	mClassVDataRefs.Clear();
+	mClassVDataExtRefs.Clear();
+	mTypeDataRefs.Clear();
+	mTypeDataNameRefs.Clear();
+	mInterfaceSlotRefs.Clear();
+	mDbgRawAllocDataRefs.Clear();
 	mStringObjectPool.Clear();
 	mStringCharPtrPool.Clear();
 	mStringPoolRefs.Clear();
@@ -12765,6 +12957,7 @@ void BfModule::GetCustomAttributes(BfCustomAttributes* customAttributes, BfAttri
 		customAttribute.mDeclaringType = activeTypeDef;
 		customAttribute.mRef = attributesDirective;
 		customAttribute.mIsMultiUse = attributesDirective->mIsMultiUse;
+		customAttribute.mConstHolder = NULL;
 
 		if (attributesDirective->mAttrOpenToken != NULL)
 			targetOverride = (BfAttributeTargets)0;
@@ -13166,11 +13359,17 @@ void BfModule::GetCustomAttributes(BfCustomAttributes* customAttributes, BfAttri
 		// Move all those to the constHolder
 		if (!keepConstsInModule)
 		{
+			BfIRConstHolder* attrConstHolder = (mCurTypeInstance != NULL) ? mCurTypeInstance->GetOrCreateConstHolder() : (BfIRConstHolder*)mBfIRBuilder;
+			customAttribute.mConstHolder = attrConstHolder;
 			for (auto& ctorArg : customAttribute.mCtorArgs)
 			{
 				if (ctorArg.IsConst())
 					CurrentAddToConstHolder(ctorArg);
 			}
+		}
+		else
+		{
+			customAttribute.mConstHolder = mBfIRBuilder;
 		}
 
 		if (attributesDirective->mAttributeTargetSpecifier != NULL)
@@ -13254,6 +13453,40 @@ BfCustomAttributes* BfModule::GetCustomAttributes(BfTypeDef* typeDef)
 	else
 		attrTarget = BfAttributeTargets_Class;
 	return GetCustomAttributes(typeDef->mTypeDeclaration->mAttributes, attrTarget);
+}
+
+void BfModule::CopyCustomAttributeConsts(BfCustomAttribute& customAttribute, BfIRConstHolder* targetConstHolder)
+{
+	if (targetConstHolder == NULL)
+		targetConstHolder = mBfIRBuilder;
+
+	BfIRConstHolder* srcHolder = customAttribute.mConstHolder;
+	if (srcHolder == NULL)
+		srcHolder = mBfIRBuilder;
+
+	if (srcHolder == targetConstHolder)
+	{
+		customAttribute.mConstHolder = targetConstHolder;
+		return;
+	}
+
+	auto copyConst = [&](BfIRValue& value)
+	{
+		if (!value.IsConst())
+			return;
+		auto constant = srcHolder->GetConstant(value);
+		if (constant != NULL)
+			value = targetConstHolder->CreateConst(constant, srcHolder);
+	};
+
+	for (auto& ctorArg : customAttribute.mCtorArgs)
+		copyConst(ctorArg);
+	for (auto& setProp : customAttribute.mSetProperties)
+		copyConst(setProp.mParam.mValue);
+	for (auto& setField : customAttribute.mSetField)
+		copyConst(setField.mParam.mValue);
+
+	customAttribute.mConstHolder = targetConstHolder;
 }
 
 void BfModule::FinishAttributeState(BfAttributeState* attributeState)
@@ -18692,12 +18925,40 @@ void BfModule::CreateDllImportMethod()
 
 BfIRCallingConv BfModule::GetIRCallingConvention(BfMethodInstance* methodInstance)
 {
+	auto isLikelyValidPtr = [](const void* ptr)
+	{
+		uintptr_t addr = (uintptr_t)ptr;
+		if (addr < 0x10000)
+			return false;
+#if BF_64BIT
+		if (addr > 0x00007FFFFFFFFFFFULL)
+			return false;
+#endif
+		if ((addr & (sizeof(void*) - 1)) != 0)
+			return false;
+		return true;
+	};
+
 	auto methodDef = methodInstance->mMethodDef;
-	BfTypeInstance* owner = NULL;
-	if (!methodDef->mIsStatic)
-		owner = methodInstance->GetThisType()->ToTypeInstance();
-	if (owner == NULL)
-		owner = methodInstance->GetOwner();
+	if (!isLikelyValidPtr(methodDef))
+	{
+		Fail("Invalid methodDef in GetIRCallingConvention");
+		return BfIRCallingConv_CDecl;
+	}
+
+	auto methodInstGroup = methodInstance->mMethodInstanceGroup;
+	if (!isLikelyValidPtr(methodInstGroup))
+	{
+		Fail("Invalid method instance group in GetIRCallingConvention");
+		return BfIRCallingConv_CDecl;
+	}
+
+	auto owner = methodInstGroup->mOwner;
+	if (!isLikelyValidPtr(owner))
+	{
+		Fail("Invalid method owner in GetIRCallingConvention");
+		return BfIRCallingConv_CDecl;
+	}
 
 	if ((mCompiler->mOptions.mMachineType != BfMachineType_x86) || (mCompiler->mOptions.mPlatformType != BfPlatformType_Windows))
 		return BfIRCallingConv_CDecl;
@@ -18785,9 +19046,19 @@ void BfModule::SetupIRMethod(BfMethodInstance* methodInstance, BfIRFunction func
 		{
 			paramName = "this";
 			if (methodInstance->mIsClosure)
-				resolvedTypeRef = mCurMethodState->mClosureState->mClosureType;
+			{
+				if ((methodInstance->mMethodInfoEx != NULL) && (methodInstance->mMethodInfoEx->mClosureInstanceInfo != NULL) &&
+					(methodInstance->mMethodInfoEx->mClosureInstanceInfo->mThisOverride != NULL))
+					resolvedTypeRef = methodInstance->mMethodInfoEx->mClosureInstanceInfo->mThisOverride;
+				else if ((mCurMethodState != NULL) && (mCurMethodState->mClosureState != NULL))
+					resolvedTypeRef = mCurMethodState->mClosureState->mClosureType;
+				else
+					resolvedTypeRef = methodInstance->GetThisType();
+			}
 			else
+			{
 				resolvedTypeRef = methodInstance->GetThisType();
+			}
 			isSplattable = (!mIsComptimeModule) && (resolvedTypeRef->IsSplattable()) && (methodInstance->AllowsSplatting(-1));
 			tryLowering = (!mIsComptimeModule) && (methodInstance->AllowsSplatting(-1));
         }
@@ -20677,26 +20948,33 @@ void BfModule::ProcessMethod_ProcessDeferredLocals(int startIdx)
 					}*/
 				}
 
-				BfMethodInstanceGroup methodInstanceGroup;
-				methodInstanceGroup.mOwner = mCurTypeInstance;
-				methodInstanceGroup.mOnDemandKind = BfMethodOnDemandKind_AlwaysInclude;
+				BfMethodInstanceGroup tempMethodInstanceGroup;
+				BfMethodInstanceGroup* methodInstanceGroup = lambdaInstance->mMethodInstance->mMethodInstanceGroup;
+				if (methodInstanceGroup == NULL)
+				{
+					tempMethodInstanceGroup.mOwner = mCurTypeInstance;
+					tempMethodInstanceGroup.mOnDemandKind = BfMethodOnDemandKind_AlwaysInclude;
+					methodInstanceGroup = &tempMethodInstanceGroup;
+				}
 
 				bool doProcess = !mCompiler->mCanceling;
 				if (doProcess)
 				{
 					BP_ZONE_F("ProcessMethod lambdaInstance %s", lambdaInstance->mMethodInstance->mMethodDef->mName.c_str());
-					lambdaInstance->mMethodInstance->mMethodInstanceGroup = &methodInstanceGroup;
+					lambdaInstance->mMethodInstance->mMethodInstanceGroup = methodInstanceGroup;
 					ProcessMethod(lambdaInstance->mMethodInstance);
-					lambdaInstance->mMethodInstance->mMethodInstanceGroup = NULL;
+					if (methodInstanceGroup == &tempMethodInstanceGroup)
+						lambdaInstance->mMethodInstance->mMethodInstanceGroup = NULL;
 
 					if (lambdaInstance->mDtorMethodInstance != NULL)
 					{
-						lambdaInstance->mDtorMethodInstance->mMethodInstanceGroup = &methodInstanceGroup;
+						lambdaInstance->mDtorMethodInstance->mMethodInstanceGroup = methodInstanceGroup;
 
 						auto startMethodState2 = mCurMethodState;
 
 						ProcessMethod(lambdaInstance->mDtorMethodInstance);
-						lambdaInstance->mDtorMethodInstance->mMethodInstanceGroup = NULL;
+						if (methodInstanceGroup == &tempMethodInstanceGroup)
+							lambdaInstance->mDtorMethodInstance->mMethodInstanceGroup = NULL;
 					}
 				}
 
@@ -23588,6 +23866,22 @@ BfMethodDef* BfModule::GetLocalMethodDef(BfLocalMethod* localMethod)
  			auto paramDef = new BfParameterDef();
  			paramDef->mTypeRef = _AllocDirectTypeRef(paramType);
  			paramDef->mName = paramName;
+			BfAttributeDirective* paramAttrs = NULL;
+			if (localMethod->mLambdaBindExpr != NULL)
+			{
+				if (paramIdx < (int)localMethod->mLambdaBindExpr->mParamAttributes.size())
+					paramAttrs = localMethod->mLambdaBindExpr->mParamAttributes[paramIdx];
+			}
+			if (paramAttrs != NULL)
+			{
+				auto paramDecl = new BfParameterDeclaration();
+				BfAstNode::Zero(paramDecl);
+				paramDecl->mAttributes = paramAttrs;
+				paramDecl->mTypeRef = paramDef->mTypeRef;
+				if ((localMethod->mLambdaBindExpr != NULL) && (paramIdx < (int)localMethod->mLambdaBindExpr->mParams.size()))
+					paramDecl->mNameNode = localMethod->mLambdaBindExpr->mParams[paramIdx];
+				paramDef->mParamDeclaration = paramDecl;
+			}
  			methodDef->mParams.Add(paramDef);
  		}
 
@@ -24461,6 +24755,8 @@ void BfModule::GetMethodCustomAttributes(BfMethodInstance* methodInstance)
 
 								BfCustomAttribute copiedCustomAttribute = customAttribute;
 								copiedCustomAttribute.mIsMultiUse = false;
+								BfIRConstHolder* targetConstHolder = (methodInstance->GetOwner() != NULL) ? methodInstance->GetOwner()->GetOrCreateConstHolder() : (BfIRConstHolder*)mBfIRBuilder;
+								CopyCustomAttributeConsts(copiedCustomAttribute, targetConstHolder);
 								methodInstance->mMethodInfoEx->mMethodCustomAttributes->mCustomAttributes->mAttributes.Add(copiedCustomAttribute);
 							}
 							ValidateCustomAttributes(methodInstance->mMethodInfoEx->mMethodCustomAttributes->mCustomAttributes, attrTarget);
@@ -25279,11 +25575,18 @@ void BfModule::DoMethodDeclaration(BfMethodDeclaration* methodDeclaration, bool 
 		{
 			if (methodInstance->GetMethodInfoEx()->mMethodCustomAttributes == NULL)
 				methodInstance->mMethodInfoEx->mMethodCustomAttributes = new BfMethodCustomAttributes();
-			while ((int)methodInstance->mMethodInfoEx->mMethodCustomAttributes->mParamCustomAttributes.size() < paramIdx)
-				methodInstance->mMethodInfoEx->mMethodCustomAttributes->mParamCustomAttributes.push_back(NULL);
+			auto& paramCustomAttributes = methodInstance->mMethodInfoEx->mMethodCustomAttributes->mParamCustomAttributes;
+			while ((int)paramCustomAttributes.size() <= paramIdx)
+				paramCustomAttributes.push_back(NULL);
 
-			auto customAttributes = GetCustomAttributes(paramDef->mParamDeclaration->mAttributes, BfAttributeTargets_Parameter);
-			methodInstance->mMethodInfoEx->mMethodCustomAttributes->mParamCustomAttributes.push_back(customAttributes);
+			if (paramCustomAttributes[paramIdx] == NULL)
+				paramCustomAttributes[paramIdx] = GetCustomAttributes(paramDef->mParamDeclaration->mAttributes, BfAttributeTargets_Parameter, BfGetCustomAttributesFlags_KeepConstsInModule);
+			if (paramCustomAttributes[paramIdx] != NULL)
+			{
+				auto targetConstHolder = typeInstance->GetOrCreateConstHolder();
+				for (auto& customAttr : paramCustomAttributes[paramIdx]->mAttributes)
+					CopyCustomAttributeConsts(customAttr, targetConstHolder);
+			}
 		}
 
 		BfType* resolvedParamType = NULL;
@@ -27628,6 +27931,7 @@ void BfModule::ClearModuleData(bool clearTransientData)
 	mClassVDataExtRefs.Clear();
 	for (auto& kv : mTypeDataRefs)
 		kv.mValue = BfIRValue();
+	mTypeDataNameRefs.Clear();
 	mStringCharPtrPool.Clear();
 	mStringObjectPool.Clear();
 	mStaticFieldRefs.Clear();

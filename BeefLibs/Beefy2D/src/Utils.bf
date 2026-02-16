@@ -140,6 +140,11 @@ namespace Beefy
             {
 				let fileName = scope String();
 				fileEntry.GetFilePath(fileName);
+				if (fileEntry.GetFileAttributes().HasFlag(.SymLink))
+				{
+					Directory.Delete(fileName).IgnoreError();
+					continue;
+				}
                 Try!(DelTree(fileName, fileFilter));
             }
 

@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Collections;
+
 namespace System
 {
 	[AlwaysInclude]
@@ -5,6 +8,16 @@ namespace System
 	{
 	    void* mFuncPtr;
 	    void* mTarget;
+
+		public MethodInfo Method
+		{
+			get
+			{
+				if (mFuncPtr == null)
+					return default;
+				return DelegateMethodCache.GetMethodInfo(mFuncPtr);
+			}
+		}
 
 		public static bool Equals(Delegate a, Delegate b)
 		{
@@ -74,5 +87,58 @@ namespace System
 	struct Function : int
 	{
 
+	}
+
+	static class DelegateMethodCache
+	{
+		static Dictionary<int, MethodInfo> sMethodInfoCache = new .() ~ delete _;
+		static bool sCacheBuilt;
+
+		public static MethodInfo GetMethodInfo(void* funcPtr)
+		{
+			if (Compiler.IsComptime)
+				return default;
+			if (funcPtr == null)
+				return default;
+
+			BuildMethodInfoCache();
+
+			MethodInfo methodInfo = default;
+			if (sMethodInfoCache.TryGetValue((int)funcPtr, out methodInfo))
+				return methodInfo;
+
+			return default;
+		}
+
+		static void BuildMethodInfoCache()
+		{
+			if (sCacheBuilt)
+				return;
+
+			sCacheBuilt = true;
+			Type.[Friend]GetType((.)0);
+			for (var type in Type.Types)
+			{
+				if (var typeInstance = type as TypeInstance)
+				{
+					int methodCount = typeInstance.[Friend]mMethodDataCount;
+					if (methodCount == 0)
+						continue;
+
+					let methodDataPtr = typeInstance.[Friend]mMethodDataPtr;
+					if (methodDataPtr == null)
+						continue;
+
+					for (int i < methodCount)
+					{
+						let methodData = &methodDataPtr[i];
+						if (methodData.mFuncPtr == null)
+							continue;
+
+						sMethodInfoCache[(int)methodData.mFuncPtr] = .(typeInstance, methodData);
+					}
+				}
+			}
+		}
 	}
 }

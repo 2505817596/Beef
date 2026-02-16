@@ -26,7 +26,9 @@
 #include "BfSourceClassifier.h"
 #include "BfAutoComplete.h"
 #include "BfResolvePass.h"
+#include "BfResolvedTypeUtils.h"
 #include "CeMachine.h"
+#include <unordered_set>
 
 #pragma warning(pop)
 
@@ -94,9 +96,18 @@ BfContext::~BfContext()
 	for (auto localMethod : mLocalMethodGraveyard)
 		delete localMethod;
 
-	int numTypesDeleted = 0;
+	for (auto lambdaGroup : mLambdaMethodGroups)
+		delete lambdaGroup;
+
+	std::unordered_set<BfType*> seenTypes;
+	seenTypes.reserve(mResolvedTypes.size());
 	for (auto type : mResolvedTypes)
 	{
+		if (type != NULL)
+		{
+			if (!seenTypes.insert(type).second)
+				continue;
+		}
 		//_CrtCheckMemory();
 		delete type;
 	}
@@ -1314,8 +1325,7 @@ void BfContext::RebuildType(BfType* type, bool deleteOnDemandTypes, bool rebuild
 	typeInst->mInstSize = -1;
 	typeInst->mInstAlign = -1;
 	typeInst->mInheritDepth = 0;
-	delete typeInst->mConstHolder;
-	typeInst->mConstHolder = NULL;
+	// Keep const holder across rebuilds to avoid stale attribute constant references.
 
 	if ((typeInst->mModule != NULL) && (rebuildModule))
 	{
@@ -2949,8 +2959,6 @@ void BfContext::GenerateModuleName_Type(BfType* type, StringImpl& name)
 				name += "_";
 			auto paramDef = methodDef->mParams[paramIdx];
 			GenerateModuleName_Type(mScratchModule->ResolveTypeRef(paramDef->mTypeRef), name);
-			name += "_";
-			name += paramDef->mName;
 		}
 		return;
 	}
@@ -3537,6 +3545,25 @@ void BfContext::Cleanup()
 				delete localMethod;
 		}
 		mLocalMethodGraveyard = survivingLocalMethods;
+	}
+
+	///
+	{
+		Array<BfMethodInstanceGroup*> survivingLambdaGroups;
+		for (auto lambdaGroup : mLambdaMethodGroups)
+		{
+			if (lambdaGroup == NULL)
+				continue;
+
+			if ((lambdaGroup->mOwner == NULL) || (lambdaGroup->mOwner->IsDeleting()))
+			{
+				delete lambdaGroup;
+				continue;
+			}
+
+			survivingLambdaGroups.push_back(lambdaGroup);
+		}
+		mLambdaMethodGroups = survivingLambdaGroups;
 	}
 
 	// Clean up deleted BfTypes

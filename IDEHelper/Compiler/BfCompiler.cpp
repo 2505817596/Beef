@@ -51,6 +51,50 @@ namespace llvm
 
 #define SPLIT_CONTEXTS
 
+#ifdef BF_PLATFORM_WINDOWS
+#include <windows.h>
+#include <stdio.h>
+
+static uint64 GetDateTimeTicks()
+{
+	FILETIME ft;
+	GetSystemTimeAsFileTime(&ft);
+	ULARGE_INTEGER ul;
+	ul.LowPart = ft.dwLowDateTime;
+	ul.HighPart = ft.dwHighDateTime;
+	return (uint64)ul.QuadPart + 504911232000000000ULL;
+}
+
+static void AppendCleanTrace(const char* msg)
+{
+	char path[MAX_PATH];
+	DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH);
+	if (len == 0 || len >= MAX_PATH)
+		return;
+
+	char* slash = strrchr(path, '\\');
+	if (slash == NULL)
+		slash = strrchr(path, '/');
+	if (slash == NULL)
+		return;
+
+	slash[1] = 0;
+	strcat_s(path, "clean_trace.txt");
+
+	FILE* fp = fopen(path, "ab");
+	if (fp == NULL)
+		return;
+
+	uint64 ticks = GetDateTimeTicks();
+	fprintf(fp, "%llu %s\n", (unsigned long long)ticks, msg);
+	fclose(fp);
+}
+#else
+static void AppendCleanTrace(const char* msg)
+{
+}
+#endif
+
 Beefy::BfCompiler* gBfCompiler = NULL;
 
 void pt(llvm::Type* t)
@@ -501,12 +545,24 @@ BfCompiler::BfCompiler(BfSystem* bfSystem, bool isResolveOnly)
 
 BfCompiler::~BfCompiler()
 {
+	AppendCleanTrace("BfCompiler::~BfCompiler begin");
+	AppendCleanTrace("BfCompiler::~BfCompiler before delete mCeMachine");
 	delete mCeMachine;
 	mCeMachine = NULL;
+	AppendCleanTrace("BfCompiler::~BfCompiler after delete mCeMachine");
+	AppendCleanTrace("BfCompiler::~BfCompiler before delete mContext");
 	delete mContext;
+	AppendCleanTrace("BfCompiler::~BfCompiler after delete mContext");
+	AppendCleanTrace("BfCompiler::~BfCompiler before delete mHotData");
 	delete mHotData;
+	AppendCleanTrace("BfCompiler::~BfCompiler after delete mHotData");
+	AppendCleanTrace("BfCompiler::~BfCompiler before delete mHotState");
 	delete mHotState;
+	AppendCleanTrace("BfCompiler::~BfCompiler after delete mHotState");
+	AppendCleanTrace("BfCompiler::~BfCompiler before delete mHotResolveData");
 	delete mHotResolveData;
+	AppendCleanTrace("BfCompiler::~BfCompiler after delete mHotResolveData");
+	AppendCleanTrace("BfCompiler::~BfCompiler end");
 }
 
 bool BfCompiler::IsTypeAccessible(BfType* checkType, BfProject* curProject)
@@ -10648,7 +10704,9 @@ BF_EXPORT void BF_CALLTYPE BfCompiler_WriteBuildCache(BfCompiler* bfCompiler, ch
 
 BF_EXPORT void BF_CALLTYPE BfCompiler_Delete(BfCompiler* bfCompiler)
 {
+	AppendCleanTrace("BfCompiler_Delete enter");
 	delete bfCompiler;
+	AppendCleanTrace("BfCompiler_Delete exit");
 }
 
 BF_EXPORT void BF_CALLTYPE BfCompiler_ProgramDone()
