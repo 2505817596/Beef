@@ -6585,11 +6585,14 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 		BfMangler::Mangle(typeDataName, mCompiler->GetMangleKind(), type, mContext->mScratchModule);
 	}
 
-	BfIRValue existingTypeDataVar;
-	if (mTypeDataNameRefs.TryGetValue(typeDataName, &existingTypeDataVar))
+	if (!mIsComptimeModule)
 	{
-		mTypeDataRefs[type] = existingTypeDataVar;
-		return existingTypeDataVar;
+		BfIRValue existingTypeDataVar;
+		if (mTypeDataNameRefs.TryGetValue(typeDataName, &existingTypeDataVar))
+		{
+			mTypeDataRefs[type] = existingTypeDataVar;
+			return existingTypeDataVar;
+		}
 	}
 	
 	int virtSlotIdx = -1;
@@ -6744,7 +6747,7 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 		else
 			typeDataVar = mBfIRBuilder->CreateConstNull(mBfIRBuilder->MapType(mContext->mBfTypeType));
 
-		if ((needsTypeData) && (typeDataVar))
+		if ((!mIsComptimeModule) && (needsTypeData) && (typeDataVar))
 			mTypeDataNameRefs[typeDataName] = typeDataVar;
 
 		mTypeDataRefs[type] = typeDataVar;
@@ -8448,7 +8451,7 @@ BfIRValue BfModule::CreateTypeData(BfType* type, BfCreateTypeDataContext& ctx, b
 	}
 	typeDataVar = mBfIRBuilder->CreateBitCast(typeDataVar, mBfIRBuilder->MapType(mContext->mBfTypeType));
 
-	if ((needsTypeData) && (typeDataVar))
+	if ((!mIsComptimeModule) && (needsTypeData) && (typeDataVar))
 		mTypeDataNameRefs[typeDataName] = typeDataVar;
 
 	mTypeDataRefs[typeInstance] = typeDataVar;

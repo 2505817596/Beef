@@ -1451,7 +1451,8 @@ BfTypedValue BfMethodMatcher::ResolveArgTypedValue(BfResolvedArg& resolvedArg, B
 	else if ((resolvedArg.mArgFlags & BfArgFlag_LambdaBindAttempt) != 0)
 	{
 		if ((argTypedValue) && (argTypedValue.mType->IsMethodRef()) &&
-			((checkType == NULL) || (!checkType->IsMethodRef())))
+			((checkType == NULL) || (!checkType->IsMethodRef())) &&
+			((flags & BfResolveArgFlag_FromGeneric) == 0))
 		{
 			// This may be from a previous checkMethod, clear it out
 			argTypedValue = BfTypedValue();
@@ -1520,6 +1521,12 @@ BfTypedValue BfMethodMatcher::ResolveArgTypedValue(BfResolvedArg& resolvedArg, B
 						//argTypedValue = BfTypedValue(mModule->mBfIRBuilder->GetFakeVal(), checkType);
 				}
 			}
+		}
+		else if ((checkType != NULL) && (checkType->IsMethodRef()))
+		{
+			// Generic inference can specialize lambda arguments to a methodref type.
+			// Keep the argument in methodref form for overload matching.
+			argTypedValue = mModule->GetFakeTypedValue(checkType);
 		}
 		else if ((checkType != NULL) && (!checkType->IsDelegateOrFunction()))
 		{

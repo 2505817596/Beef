@@ -3402,9 +3402,9 @@ BfResolvedTypeSet::~BfResolvedTypeSet()
 
 void BfResolvedTypeSet::SetEntryValue(EntryRef entry, BfType* value, LookupContext* ctx, const char* file, int line)
 {
-	BF_UNUSED(ctx);
-	BF_UNUSED(file);
-	BF_UNUSED(line);
+	(void)ctx;
+	(void)file;
+	(void)line;
 
 	if (entry)
 		entry->mValue = value;
