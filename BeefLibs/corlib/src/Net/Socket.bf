@@ -604,7 +604,7 @@ namespace System.Net
 		public static Result<void, SocketError> GetAddrInfo(StringView addr, StringView service, AddrInfo hints, AddrInfo** res)
 		{
 			var hints;
-			return (getaddrinfo(addr.Ptr, service.Ptr, &hints, res) == SOCKET_ERROR) ? .Err(GetLastError()) : .Ok;
+			return (getaddrinfo(addr.Ptr, service.Ptr, &hints, res) != 0) ? .Err(GetLastError()) : .Ok;
 		}
 
 		public static Result<SockAddrInfo, SocketError> GetAddrInfo(StringView addr, AddrInfo hints = default) => GetAddrInfo(addr, (StringView)default, hints);
@@ -642,7 +642,8 @@ namespace System.Net
 			SetBlocking(mIsBlocking);
 		}
 
-        public Result<void, SocketError> Listen(int32 port, int32 backlog = 5) => Listen(.(127, 0, 0, 1), port, backlog);
+        public Result<void, SocketError> Listen(int32 port, int32 backlog = 5) => Listen(.(0, 0, 0, 0), port, backlog);
+		public Result<void, SocketError> ListenLocal(int32 port, int32 backlog = 5) => Listen(.(127, 0, 0, 1), port, backlog);
 		public Result<void, SocketError> Listen(IPv4Address address, int32 port, int32 backlog = 5) => OpenEx(address, port, .Stream, .TCP, backlog);
 		public Result<void, SocketError> Listen(IPv6Address address, int32 port, int32 backlog = 5, bool v6Only = false)
 			=> OpenEx(
