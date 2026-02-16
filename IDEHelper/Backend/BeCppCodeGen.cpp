@@ -97,6 +97,8 @@ static bool IsKnownCRuntimeFunction(const StringImpl& name)
 		(name == "memcpy") ||
 		(name == "memmove") ||
 		(name == "memset") ||
+		(name == "select") ||
+		(name == "exit") ||
 		(name == "strtod") ||
 		(name == "strtof") ||
 		(name == "strtold") ||
@@ -145,6 +147,35 @@ static int GetStride(BeType* type)
 	return BF_ALIGN(size, align);
 }
 
+static int GetAggregateElementByteOffset(BeType* aggType, int idx)
+{
+	if (aggType == NULL)
+		return 0;
+
+	switch (aggType->mTypeCode)
+	{
+	case BeTypeCode_Struct:
+	{
+		auto structType = (BeStructType*)aggType;
+		if ((idx >= 0) && (idx < (int)structType->mMembers.size()))
+			return structType->mMembers[idx].mByteOffset;
+		return 0;
+	}
+	case BeTypeCode_SizedArray:
+	{
+		auto arrayType = (BeSizedArrayType*)aggType;
+		return idx * GetStride(arrayType->mElementType);
+	}
+	case BeTypeCode_Vector:
+	{
+		auto vectorType = (BeVectorType*)aggType;
+		return idx * GetStride(vectorType->mElementType);
+	}
+	default:
+		return 0;
+	}
+}
+
 static bool IsPointerType(BeType* type)
 {
 	return (type != NULL) && ((type->mTypeCode == BeTypeCode_Pointer) || (type->mTypeCode == BeTypeCode_NullPtr));
@@ -179,6 +210,38 @@ static bool IsFloatType(BeType* type)
 static bool IsScalarType(BeType* type)
 {
 	return IsIntegralType(type) || IsFloatType(type) || IsPointerType(type);
+}
+
+static const char* GetUnsignedCmpCastType(BeType* type)
+{
+	if (type == NULL)
+		return "uint64_t";
+
+	switch (type->mTypeCode)
+	{
+	case BeTypeCode_Boolean:
+	case BeTypeCode_CmpResult:
+	case BeTypeCode_Int8:
+		return "uint8_t";
+	case BeTypeCode_Int16:
+		return "uint16_t";
+	case BeTypeCode_Int32:
+		return "uint32_t";
+	case BeTypeCode_Int64:
+		return "uint64_t";
+	case BeTypeCode_Pointer:
+	case BeTypeCode_NullPtr:
+		return "uintptr_t";
+	default:
+		return "uint64_t";
+	}
+}
+
+static const char* GetUnsignedMathCastType(BeType* type)
+{
+	// For unsigned arithmetic/shift we must preserve operand bit width.
+	// Widening int32 to uint64 before shifting breaks bit-accurate ops like SHA1 rotl.
+	return GetUnsignedCmpCastType(type);
 }
 
 static String GetOpaqueCppType(BeType* type)
@@ -389,6 +452,21 @@ public:
 		return expr;
 	}
 
+	String GetZeroExpr(BeType* type)
+	{
+		if (type == NULL)
+			return "0";
+
+		auto typeName = GetCppType(type);
+		if (IsPointerType(type))
+			return "nullptr";
+		if (IsBoolLikeType(type))
+			return "false";
+		if (IsIntegralType(type) || IsFloatType(type))
+			return StrFormat("static_cast<%s>(0)", typeName.c_str());
+		return StrFormat("%s{}", typeName.c_str());
+	}
+
 	String GetConstantExpr(BeConstant* constant)
 	{
 		auto type = constant->GetType();
@@ -417,13 +495,22 @@ public:
 		{
 			String baseExpr = GetConstantExpr(gep2->mTarget);
 			auto ptrType = (BePointerType*)gep2->mTarget->GetType();
-			int byteOffset = 0;
+			int byteOffset = gep2->mIdx0 * GetStride(ptrType->mElementType);
 			if (ptrType->mElementType->mTypeCode == BeTypeCode_Struct)
 			{
 				auto structType = (BeStructType*)ptrType->mElementType;
-				byteOffset = gep2->mIdx0 * GetStride(structType);
 				if ((gep2->mIdx1 >= 0) && (gep2->mIdx1 < (int)structType->mMembers.size()))
 					byteOffset += structType->mMembers[gep2->mIdx1].mByteOffset;
+			}
+			else if (ptrType->mElementType->mTypeCode == BeTypeCode_SizedArray)
+			{
+				auto arrayType = (BeSizedArrayType*)ptrType->mElementType;
+				byteOffset += gep2->mIdx1 * GetStride(arrayType->mElementType);
+			}
+			else if (ptrType->mElementType->mTypeCode == BeTypeCode_Vector)
+			{
+				auto vectorType = (BeVectorType*)ptrType->mElementType;
+				byteOffset += gep2->mIdx1 * GetStride(vectorType->mElementType);
 			}
 			return StrFormat("reinterpret_cast<%s>(reinterpret_cast<uint8_t*>(%s) + ((intptr_t)%d))",
 				typeName.c_str(), baseExpr.c_str(), byteOffset);
@@ -431,8 +518,11 @@ public:
 
 		if (auto extractConst = BeValueDynCast<BeExtractValueConstant>(constant))
 		{
+			int byteOffset = GetAggregateElementByteOffset(extractConst->mTarget->GetType(), extractConst->mIdx0);
 			String aggExpr = GetConstantExpr(extractConst->mTarget);
-			return StrFormat("((%s)(%s))", typeName.c_str(), aggExpr.c_str());
+			String tmpName = MakeUniqueName("extract_const");
+			return StrFormat("([]() -> %s { auto %s = %s; return *reinterpret_cast<%s*>(reinterpret_cast<uint8_t*>(&%s) + ((intptr_t)%d)); })()",
+				typeName.c_str(), tmpName.c_str(), aggExpr.c_str(), typeName.c_str(), tmpName.c_str(), byteOffset);
 		}
 
 		if (auto structConst = BeValueDynCast<BeStructConstant>(constant))
@@ -443,11 +533,7 @@ public:
 		}
 
 		if (BeValueDynCast<BeUndefConstant>(constant) != NULL)
-		{
-			if (IsPointerType(type))
-				return "nullptr";
-			return StrFormat("%s{}", typeName.c_str());
-		}
+			return GetZeroExpr(type);
 
 		if (IsPointerType(type))
 		{
@@ -675,12 +761,35 @@ public:
 		}
 	}
 
+	int GetAtomicOrderingArg(BeCallInst* callInst, int argIdx)
+	{
+		if ((argIdx >= 0) && (argIdx < (int)callInst->mArgs.size()))
+		{
+			if (auto orderConst = BeValueDynCast<BeConstant>(callInst->mArgs[argIdx].mValue))
+				return (int)orderConst->mInt64;
+		}
+		return BfIRAtomicOrdering_SeqCst;
+	}
+
+	String GetAtomicOrderingExpr(int orderKind)
+	{
+		return StrFormat("(%d)", orderKind & BfIRAtomicOrdering_ORDERMASK);
+	}
+
+	bool WantsAtomicModifiedResult(int orderKind)
+	{
+		return (orderKind & BfIRAtomicOrdering_ReturnModified) != 0;
+	}
+
 	String GetBinaryOpExpr(BeBinaryOpInst* binaryOpInst)
 	{
 		auto lhs = GetValueExpr(binaryOpInst->mLHS);
 		auto rhs = GetValueExpr(binaryOpInst->mRHS);
 		auto resultType = binaryOpInst->GetType();
 		auto resultTypeName = GetCppType(resultType);
+		auto unsignedCastType = GetUnsignedMathCastType(resultType);
+		auto lhsUnsigned = StrFormat("(%s)(%s)", unsignedCastType, lhs.c_str());
+		auto rhsUnsigned = StrFormat("(%s)(%s)", unsignedCastType, rhs.c_str());
 
 		switch (binaryOpInst->mOpKind)
 		{
@@ -689,16 +798,17 @@ public:
 		case BeBinaryOpKind_Multiply: return StrFormat("((%s) * (%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_SDivide: return StrFormat("((%s) / (%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_UDivide:
-			return StrFormat("((%s)((uint64_t)(%s) / (uint64_t)(%s)))", resultTypeName.c_str(), lhs.c_str(), rhs.c_str());
+			return StrFormat("((%s)((%s) / (%s)))", resultTypeName.c_str(), lhsUnsigned.c_str(), rhsUnsigned.c_str());
 		case BeBinaryOpKind_SModulus: return StrFormat("((%s) %% (%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_UModulus:
-			return StrFormat("((%s)((uint64_t)(%s) %% (uint64_t)(%s)))", resultTypeName.c_str(), lhs.c_str(), rhs.c_str());
+			return StrFormat("((%s)((%s) %% (%s)))", resultTypeName.c_str(), lhsUnsigned.c_str(), rhsUnsigned.c_str());
 		case BeBinaryOpKind_BitwiseAnd: return StrFormat("((%s) & (%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_BitwiseOr: return StrFormat("((%s) | (%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_ExclusiveOr: return StrFormat("((%s) ^ (%s))", lhs.c_str(), rhs.c_str());
-		case BeBinaryOpKind_LeftShift: return StrFormat("((%s) << (uint32_t)(%s))", lhs.c_str(), rhs.c_str());
+		case BeBinaryOpKind_LeftShift:
+			return StrFormat("((%s)((%s) << (uint32_t)(%s)))", resultTypeName.c_str(), lhsUnsigned.c_str(), rhs.c_str());
 		case BeBinaryOpKind_RightShift:
-			return StrFormat("((%s)((uint64_t)(%s) >> (uint32_t)(%s)))", resultTypeName.c_str(), lhs.c_str(), rhs.c_str());
+			return StrFormat("((%s)((%s) >> (uint32_t)(%s)))", resultTypeName.c_str(), lhsUnsigned.c_str(), rhs.c_str());
 		case BeBinaryOpKind_ARightShift: return StrFormat("((%s) >> (uint32_t)(%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_Equality: return StrFormat("((%s) == (%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_InEquality: return StrFormat("((%s) != (%s))", lhs.c_str(), rhs.c_str());
@@ -711,21 +821,27 @@ public:
 		}
 	}
 
-	String GetCmpExpr(BeCmpInst* cmpInst)
-	{
+		String GetCmpExpr(BeCmpInst* cmpInst)
+		{
 		auto lhs = GetValueExpr(cmpInst->mLHS);
 		auto rhs = GetValueExpr(cmpInst->mRHS);
+		auto lhsUnsignedCast = GetUnsignedCmpCastType(cmpInst->mLHS != NULL ? cmpInst->mLHS->GetType() : NULL);
+		auto rhsUnsignedCast = GetUnsignedCmpCastType(cmpInst->mRHS != NULL ? cmpInst->mRHS->GetType() : NULL);
+		auto lhsUnsigned = StrFormat("(%s)(%s)", lhsUnsignedCast, lhs.c_str());
+		auto rhsUnsigned = StrFormat("(%s)(%s)", rhsUnsignedCast, rhs.c_str());
 
 		switch (cmpInst->mCmpKind)
 		{
 		case BeCmpKind_SLT:
-		case BeCmpKind_ULT:
 		case BeCmpKind_OLT:
 			return StrFormat("((%s) < (%s))", lhs.c_str(), rhs.c_str());
 		case BeCmpKind_SLE:
-		case BeCmpKind_ULE:
 		case BeCmpKind_OLE:
 			return StrFormat("((%s) <= (%s))", lhs.c_str(), rhs.c_str());
+		case BeCmpKind_ULT:
+			return StrFormat("((%s) < (%s))", lhsUnsigned.c_str(), rhsUnsigned.c_str());
+		case BeCmpKind_ULE:
+			return StrFormat("((%s) <= (%s))", lhsUnsigned.c_str(), rhsUnsigned.c_str());
 		case BeCmpKind_EQ:
 		case BeCmpKind_OEQ:
 			return StrFormat("((%s) == (%s))", lhs.c_str(), rhs.c_str());
@@ -733,22 +849,24 @@ public:
 		case BeCmpKind_UNE:
 			return StrFormat("((%s) != (%s))", lhs.c_str(), rhs.c_str());
 		case BeCmpKind_SGT:
-		case BeCmpKind_UGT:
 		case BeCmpKind_OGT:
 			return StrFormat("((%s) > (%s))", lhs.c_str(), rhs.c_str());
 		case BeCmpKind_SGE:
-		case BeCmpKind_UGE:
 		case BeCmpKind_OGE:
 			return StrFormat("((%s) >= (%s))", lhs.c_str(), rhs.c_str());
+		case BeCmpKind_UGT:
+			return StrFormat("((%s) > (%s))", lhsUnsigned.c_str(), rhsUnsigned.c_str());
+		case BeCmpKind_UGE:
+			return StrFormat("((%s) >= (%s))", lhsUnsigned.c_str(), rhsUnsigned.c_str());
 		case BeCmpKind_Sign:
 			return StrFormat("((%s) < 0)", lhs.c_str());
 		default:
 			return "false";
+			}
 		}
-	}
 
-	String GetGEPExpr(BeGEPInst* gepInst)
-	{
+		String GetGEPExpr(BeGEPInst* gepInst)
+		{
 		auto ptrType = (BePointerType*)gepInst->mPtr->GetType();
 		auto elemType = ptrType->mElementType;
 		auto resultTypeName = GetCppType(gepInst->GetType());
@@ -804,6 +922,48 @@ public:
 				mOut += StrFormat("\t%s = %s;\n", GetValueName(callInst).c_str(), expr.c_str());
 			else
 				mOut += StrFormat("\t%s;\n", expr.c_str());
+		};
+
+		auto emitAtomicRMW = [&](const char* fetchExpr, const char* modifiedExpr) -> bool
+		{
+			if (callInst->mArgs.size() < 2)
+			{
+				mOut += "\tstd::abort();\n";
+				return true;
+			}
+
+			auto ptrTypeVal = callInst->mArgs[0].mValue->GetType();
+			if ((ptrTypeVal == NULL) || (ptrTypeVal->mTypeCode != BeTypeCode_Pointer))
+			{
+				mOut += "\tstd::abort();\n";
+				return true;
+			}
+			auto ptrType = (BePointerType*)ptrTypeVal;
+			if (ptrType->mElementType == NULL)
+			{
+				mOut += "\tstd::abort();\n";
+				return true;
+			}
+
+			auto elemType = ptrType->mElementType;
+			String elemTypeName = GetCppType(elemType);
+			String locExpr = GetValueExpr(callInst->mArgs[0].mValue);
+			String valueExpr = CastExpr(elemType, callInst->mArgs[1].mValue->GetType(), GetValueExpr(callInst->mArgs[1].mValue));
+			int orderKind = GetAtomicOrderingArg(callInst, 2);
+			String orderExpr = GetAtomicOrderingExpr(orderKind);
+
+			if (hasRet)
+			{
+				const char* opExpr = WantsAtomicModifiedResult(orderKind) ? modifiedExpr : fetchExpr;
+				emitAssign(StrFormat("%s(reinterpret_cast<%s*>(%s), %s, %s)",
+					opExpr, elemTypeName.c_str(), locExpr.c_str(), valueExpr.c_str(), orderExpr.c_str()));
+			}
+			else
+			{
+				mOut += StrFormat("\t(void)%s(reinterpret_cast<%s*>(%s), %s, %s);\n",
+					modifiedExpr, elemTypeName.c_str(), locExpr.c_str(), valueExpr.c_str(), orderExpr.c_str());
+			}
+			return true;
 		};
 
 		switch (intrinsic->mKind)
@@ -892,18 +1052,149 @@ public:
 			else
 				mOut += "\tstd::abort();\n";
 			return true;
-		case BfIRIntrinsic_Div:
-			if (hasRet)
-				emitAssign(GetIntrinsicBinaryExpr(callInst, "/"));
-			else
-				mOut += "\tstd::abort();\n";
-			return true;
-			case BfIRIntrinsic_Mod:
+			case BfIRIntrinsic_Div:
 				if (hasRet)
-					emitAssign(GetIntrinsicBinaryExpr(callInst, "%"));
+					emitAssign(GetIntrinsicBinaryExpr(callInst, "/"));
 				else
 					mOut += "\tstd::abort();\n";
 				return true;
+			case BfIRIntrinsic_Cast:
+				if ((callInst->mArgs.size() >= 1) && hasRet)
+				{
+					auto retType = callInst->GetType();
+					auto argVal = callInst->mArgs[0].mValue;
+					emitAssign(CastExpr(retType, argVal->GetType(), GetValueExpr(argVal)));
+				}
+				else
+					mOut += "\tstd::abort();\n";
+				return true;
+				case BfIRIntrinsic_Mod:
+					if (hasRet)
+						emitAssign(GetIntrinsicBinaryExpr(callInst, "%"));
+					else
+						mOut += "\tstd::abort();\n";
+				return true;
+				case BfIRIntrinsic_AtomicAdd:
+					return emitAtomicRMW("__atomic_fetch_add", "__atomic_add_fetch");
+				case BfIRIntrinsic_AtomicSub:
+					return emitAtomicRMW("__atomic_fetch_sub", "__atomic_sub_fetch");
+				case BfIRIntrinsic_AtomicAnd:
+					return emitAtomicRMW("__atomic_fetch_and", "__atomic_and_fetch");
+				case BfIRIntrinsic_AtomicOr:
+					return emitAtomicRMW("__atomic_fetch_or", "__atomic_or_fetch");
+				case BfIRIntrinsic_AtomicXor:
+					return emitAtomicRMW("__atomic_fetch_xor", "__atomic_xor_fetch");
+				case BfIRIntrinsic_AtomicNAnd:
+					return emitAtomicRMW("__atomic_fetch_nand", "__atomic_nand_fetch");
+				case BfIRIntrinsic_AtomicLoad:
+				{
+					if (callInst->mArgs.empty())
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+
+					auto ptrTypeVal = callInst->mArgs[0].mValue->GetType();
+					if ((ptrTypeVal == NULL) || (ptrTypeVal->mTypeCode != BeTypeCode_Pointer))
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+					auto ptrType = (BePointerType*)ptrTypeVal;
+					if (ptrType->mElementType == NULL)
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+
+					auto elemType = ptrType->mElementType;
+					String elemTypeName = GetCppType(elemType);
+					String locExpr = GetValueExpr(callInst->mArgs[0].mValue);
+					int orderKind = GetAtomicOrderingArg(callInst, 1);
+					String orderExpr = GetAtomicOrderingExpr(orderKind);
+					String loadExpr = StrFormat("__atomic_load_n(reinterpret_cast<%s*>(%s), %s)",
+						elemTypeName.c_str(), locExpr.c_str(), orderExpr.c_str());
+					if (hasRet)
+						emitAssign(loadExpr);
+					else
+						mOut += StrFormat("\t(void)%s;\n", loadExpr.c_str());
+					return true;
+				}
+				case BfIRIntrinsic_AtomicStore:
+				{
+					if (callInst->mArgs.size() < 2)
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+
+					auto ptrTypeVal = callInst->mArgs[0].mValue->GetType();
+					if ((ptrTypeVal == NULL) || (ptrTypeVal->mTypeCode != BeTypeCode_Pointer))
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+					auto ptrType = (BePointerType*)ptrTypeVal;
+					if (ptrType->mElementType == NULL)
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+
+					auto elemType = ptrType->mElementType;
+					String elemTypeName = GetCppType(elemType);
+					String locExpr = GetValueExpr(callInst->mArgs[0].mValue);
+					String valueExpr = CastExpr(elemType, callInst->mArgs[1].mValue->GetType(), GetValueExpr(callInst->mArgs[1].mValue));
+					int orderKind = GetAtomicOrderingArg(callInst, 2);
+					String orderExpr = GetAtomicOrderingExpr(orderKind);
+					mOut += StrFormat("\t__atomic_store_n(reinterpret_cast<%s*>(%s), %s, %s);\n",
+						elemTypeName.c_str(), locExpr.c_str(), valueExpr.c_str(), orderExpr.c_str());
+					if (hasRet)
+						emitAssign(valueExpr);
+					return true;
+				}
+				case BfIRIntrinsic_AtomicXChg:
+				{
+					if (callInst->mArgs.size() < 2)
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+
+					auto ptrTypeVal = callInst->mArgs[0].mValue->GetType();
+					if ((ptrTypeVal == NULL) || (ptrTypeVal->mTypeCode != BeTypeCode_Pointer))
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+					auto ptrType = (BePointerType*)ptrTypeVal;
+					if (ptrType->mElementType == NULL)
+					{
+						mOut += "\tstd::abort();\n";
+						return true;
+					}
+
+					auto elemType = ptrType->mElementType;
+					String elemTypeName = GetCppType(elemType);
+					String locExpr = GetValueExpr(callInst->mArgs[0].mValue);
+					String valueExpr = CastExpr(elemType, callInst->mArgs[1].mValue->GetType(), GetValueExpr(callInst->mArgs[1].mValue));
+					int orderKind = GetAtomicOrderingArg(callInst, 2);
+					String orderExpr = GetAtomicOrderingExpr(orderKind);
+					String xchgExpr = StrFormat("__atomic_exchange_n(reinterpret_cast<%s*>(%s), %s, %s)",
+						elemTypeName.c_str(), locExpr.c_str(), valueExpr.c_str(), orderExpr.c_str());
+					if (hasRet)
+					{
+						if (WantsAtomicModifiedResult(orderKind))
+							emitAssign(StrFormat("([&]() -> %s { (void)%s; return %s; })()", elemTypeName.c_str(), xchgExpr.c_str(), valueExpr.c_str()));
+						else
+							emitAssign(xchgExpr);
+					}
+					else
+					{
+						mOut += StrFormat("\t(void)%s;\n", xchgExpr.c_str());
+					}
+					return true;
+				}
 				case BfIRIntrinsic_AtomicCmpStore:
 				case BfIRIntrinsic_AtomicCmpStore_Weak:
 				case BfIRIntrinsic_AtomicCmpXChg:
@@ -980,10 +1271,26 @@ public:
 
 	String BuildCallExpr(BeCallInst* callInst)
 	{
+		auto adjustCRuntimeArg = [&](const StringImpl& funcName, int argIdx, const StringImpl& argExpr) -> String
+		{
+			auto isStrToFloat = (funcName == "strtod") || (funcName == "strtof") || (funcName == "strtold");
+			auto isStrToInt = (funcName == "strtol") || (funcName == "strtoll") || (funcName == "strtoul") || (funcName == "strtoull");
+			if (isStrToFloat || isStrToInt)
+			{
+				if (argIdx == 0)
+					return StrFormat("reinterpret_cast<const char*>(%s)", argExpr.c_str());
+				if (argIdx == 1)
+					return StrFormat("reinterpret_cast<char**>(%s)", argExpr.c_str());
+			}
+			return argExpr;
+		};
+
 		String callTarget;
+		String targetFuncName;
 		if (auto targetFunc = BeValueDynCast<BeFunction>(callInst->mFunc))
 		{
 			callTarget = GetFunctionName(targetFunc);
+			targetFuncName = targetFunc->mName;
 		}
 		else
 		{
@@ -995,12 +1302,28 @@ public:
 		}
 
 		String expr = callTarget;
+		if (targetFuncName == "select")
+		{
+			if (callInst->mArgs.size() == 5)
+			{
+				String a0 = GetValueExpr(callInst->mArgs[0].mValue);
+				String a1 = GetValueExpr(callInst->mArgs[1].mValue);
+				String a2 = GetValueExpr(callInst->mArgs[2].mValue);
+				String a3 = GetValueExpr(callInst->mArgs[3].mValue);
+				String a4 = GetValueExpr(callInst->mArgs[4].mValue);
+				return StrFormat("reinterpret_cast<int(*)(int, void*, void*, void*, void*)>(&::select)((int)(%s), (void*)(%s), (void*)(%s), (void*)(%s), (void*)(%s))",
+					a0.c_str(), a1.c_str(), a2.c_str(), a3.c_str(), a4.c_str());
+			}
+		}
 		expr += "(";
 		for (int argIdx = 0; argIdx < (int)callInst->mArgs.size(); argIdx++)
 		{
 			if (argIdx != 0)
 				expr += ", ";
-			expr += GetValueExpr(callInst->mArgs[argIdx].mValue);
+			String argExpr = GetValueExpr(callInst->mArgs[argIdx].mValue);
+			if (!targetFuncName.IsEmpty())
+				argExpr = adjustCRuntimeArg(targetFuncName, argIdx, argExpr);
+			expr += argExpr;
 		}
 		expr += ")";
 		return expr;
@@ -1118,7 +1441,7 @@ public:
 
 	void EmitFunctionPrototype(BeFunction* beFunc)
 	{
-		if (beFunc->IsDecl() && IsKnownCRuntimeFunction(beFunc->mName))
+		if (IsKnownCRuntimeFunction(beFunc->mName))
 			return;
 		String sig = BuildFunctionSignature(beFunc, true);
 		mOut += sig;
@@ -1272,8 +1595,32 @@ public:
 				}
 				if (auto numericCastInst = BeValueDynCast<BeNumericCastInst>(inst))
 				{
+					auto fromType = numericCastInst->mValue->GetType();
+					auto toType = numericCastInst->mToType;
 					String valExpr = GetValueExpr(numericCastInst->mValue);
-					String castExpr = CastExpr(numericCastInst->mToType, numericCastInst->mValue->GetType(), valExpr);
+					String castExpr;
+
+					// Be IR keeps integer widths but signedness lives on numeric casts.
+					// Preserve zero/sign extension semantics explicitly for C++ emission.
+					if (IsIntegralType(fromType) && (!numericCastInst->mValSigned))
+					{
+						auto fromUnsignedType = GetUnsignedMathCastType(fromType);
+						valExpr = StrFormat("((%s)(%s))", fromUnsignedType, valExpr.c_str());
+					}
+
+					if (IsIntegralType(toType) && (!numericCastInst->mToSigned))
+					{
+						auto toUnsignedType = GetUnsignedMathCastType(toType);
+						auto toTypeName = GetCppType(toType);
+						String unsignedExpr = StrFormat("((%s)(%s))", toUnsignedType, valExpr.c_str());
+						if (toTypeName != toUnsignedType)
+							castExpr = StrFormat("((%s)(%s))", toTypeName.c_str(), unsignedExpr.c_str());
+						else
+							castExpr = unsignedExpr;
+					}
+					else
+						castExpr = CastExpr(toType, fromType, valExpr);
+
 					mOut += StrFormat("\t%s = %s;\n", GetValueName(numericCastInst).c_str(), castExpr.c_str());
 					continue;
 				}
@@ -1387,21 +1734,29 @@ public:
 					mOut += StrFormat("\t%s = %s;\n", GetValueName(gepInst).c_str(), GetGEPExpr(gepInst).c_str());
 					continue;
 				}
-				if (auto extractInst = BeValueDynCast<BeExtractValueInst>(inst))
-				{
-					auto extractType = extractInst->GetType();
-					auto typeName = GetCppType(extractType);
-					if (IsPointerType(extractType))
-						mOut += StrFormat("\t%s = nullptr;\n", GetValueName(extractInst).c_str());
-					else
-						mOut += StrFormat("\t%s = %s{};\n", GetValueName(extractInst).c_str(), typeName.c_str());
-					continue;
-				}
-				if (auto insertInst = BeValueDynCast<BeInsertValueInst>(inst))
-				{
-					mOut += StrFormat("\t%s = %s;\n", GetValueName(insertInst).c_str(), GetValueExpr(insertInst->mAggVal).c_str());
-					continue;
-				}
+					if (auto extractInst = BeValueDynCast<BeExtractValueInst>(inst))
+					{
+						auto extractType = extractInst->GetType();
+						int byteOffset = GetAggregateElementByteOffset(extractInst->mAggVal->GetType(), extractInst->mIdx);
+						String aggExpr = GetValueExpr(extractInst->mAggVal);
+						String aggCopyName = MakeUniqueName("extract_agg");
+						mOut += StrFormat("\t{\n\t\tauto %s = %s;\n", aggCopyName.c_str(), aggExpr.c_str());
+						mOut += StrFormat("\t\t%s = *reinterpret_cast<%s*>(reinterpret_cast<uint8_t*>(&%s) + ((intptr_t)%d));\n",
+							GetValueName(extractInst).c_str(), GetCppType(extractType).c_str(), aggCopyName.c_str(), byteOffset);
+						mOut += "\t}\n";
+						continue;
+					}
+					if (auto insertInst = BeValueDynCast<BeInsertValueInst>(inst))
+					{
+						auto aggType = insertInst->mAggVal->GetType();
+						auto memberType = insertInst->mMemberVal->GetType();
+						int byteOffset = GetAggregateElementByteOffset(aggType, insertInst->mIdx);
+						mOut += StrFormat("\t%s = %s;\n", GetValueName(insertInst).c_str(), GetValueExpr(insertInst->mAggVal).c_str());
+						mOut += StrFormat("\t*reinterpret_cast<%s*>(reinterpret_cast<uint8_t*>(&%s) + ((intptr_t)%d)) = %s;\n",
+							GetCppType(memberType).c_str(), GetValueName(insertInst).c_str(), byteOffset,
+							CastExpr(memberType, insertInst->mMemberVal->GetType(), GetValueExpr(insertInst->mMemberVal)).c_str());
+						continue;
+					}
 				if (auto callInst = BeValueDynCast<BeCallInst>(inst))
 				{
 					bool hasRet = callInst->GetType() != NULL && callInst->GetType()->mTypeCode != BeTypeCode_None;
@@ -1554,6 +1909,36 @@ public:
 		mOut += "#include <cstring>\n";
 		mOut += "#include <atomic>\n";
 		mOut += "#include <cmath>\n\n";
+
+		// Bridge char8/int8_t interop to C runtime parsing APIs without requiring per-call casts.
+		mOut += "static inline double strtod(int8_t* str, int8_t** endPtr)\n";
+		mOut += "{\n";
+		mOut += "\treturn std::strtod(reinterpret_cast<const char*>(str), reinterpret_cast<char**>(endPtr));\n";
+		mOut += "}\n";
+		mOut += "static inline float strtof(int8_t* str, int8_t** endPtr)\n";
+		mOut += "{\n";
+		mOut += "\treturn std::strtof(reinterpret_cast<const char*>(str), reinterpret_cast<char**>(endPtr));\n";
+		mOut += "}\n";
+		mOut += "static inline long double strtold(int8_t* str, int8_t** endPtr)\n";
+		mOut += "{\n";
+		mOut += "\treturn std::strtold(reinterpret_cast<const char*>(str), reinterpret_cast<char**>(endPtr));\n";
+		mOut += "}\n";
+		mOut += "static inline long strtol(int8_t* str, int8_t** endPtr, int32_t base)\n";
+		mOut += "{\n";
+		mOut += "\treturn std::strtol(reinterpret_cast<const char*>(str), reinterpret_cast<char**>(endPtr), base);\n";
+		mOut += "}\n";
+		mOut += "static inline long long strtoll(int8_t* str, int8_t** endPtr, int32_t base)\n";
+		mOut += "{\n";
+		mOut += "\treturn std::strtoll(reinterpret_cast<const char*>(str), reinterpret_cast<char**>(endPtr), base);\n";
+		mOut += "}\n";
+		mOut += "static inline unsigned long strtoul(int8_t* str, int8_t** endPtr, int32_t base)\n";
+		mOut += "{\n";
+		mOut += "\treturn std::strtoul(reinterpret_cast<const char*>(str), reinterpret_cast<char**>(endPtr), base);\n";
+		mOut += "}\n";
+		mOut += "static inline unsigned long long strtoull(int8_t* str, int8_t** endPtr, int32_t base)\n";
+		mOut += "{\n";
+		mOut += "\treturn std::strtoull(reinterpret_cast<const char*>(str), reinterpret_cast<char**>(endPtr), base);\n";
+		mOut += "}\n\n";
 
 		mOut += "namespace bf\n";
 		mOut += "{\n";
