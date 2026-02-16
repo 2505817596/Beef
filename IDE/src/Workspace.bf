@@ -93,6 +93,7 @@ namespace IDE
             ObjectAndIRCode,
 			Bitcode,
 			BitcodeAndIRCode,
+			CppCode,
         }
 
 		public enum ReflectKind

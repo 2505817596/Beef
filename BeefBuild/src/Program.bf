@@ -17,7 +17,9 @@ namespace BeefBuild
 					BeefBuild [args]
 					  If no arguments are specified, a build will occur using current working directory as the workspace.
 					    -config=<config>        Sets the config (defaults to Debug)
+					    -emitcpp                Generate and link through C++ backend
 					    -generate               Generates startup code for an empty project
+					    -intermediate=cpp       Alias for -emitcpp
 					    -new                    Creates a new workspace and project
 					    -platform=<platform>    Sets the platform (defaults to system platform)
 					    -run                    Compile and run the startup project in the workspace

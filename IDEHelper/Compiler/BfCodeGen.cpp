@@ -16,8 +16,9 @@
 #include "BeefySysLib/util/PerfTimer.h"
 #include "BeefySysLib/util/BeefPerf.h"
 
-#ifdef BF_PLATFORM_WINDOWS
 #include "../Backend/BeIRCodeGen.h"
+#include "../Backend/BeCppCodeGen.h"
+#ifdef BF_PLATFORM_WINDOWS
 #include "../Backend/BeCOFFObject.h"
 #include "../Backend/BeLibManger.h"
 #endif
@@ -44,7 +45,7 @@
 //#define DBG_FORCE_SYNCHRONIZED
 
 // This is used for the Release DLL thunk and the build.dat file
-#define BF_CODEGEN_VERSION 14
+#define BF_CODEGEN_VERSION 15
 
 #undef DEBUG
 
@@ -358,6 +359,7 @@ void BfCodeGenThread::RunLoop()
 #endif
 
 		String errorMsg;
+		bool useCppBackend = request->mOptions.mBackendKind == BfCodeGenBackendKind_Cpp;
 
 		bool doBEProcessing = true; // TODO: Normally 'true' so we do ordered cache check for LLVM too
 		if (request->mOptions.mOptLevel == BfOptLevel_OgPlus)
@@ -372,7 +374,6 @@ void BfCodeGenThread::RunLoop()
 		}
 		else
 		{
-#ifdef BF_PLATFORM_WINDOWS
 			BeIRCodeGen* beIRCodeGen = new BeIRCodeGen();
 			defer ( delete beIRCodeGen; );
 
@@ -408,10 +409,47 @@ void BfCodeGenThread::RunLoop()
 			}
 #endif
 
-#endif
 			if ((hasCacheMatch) || (!errorMsg.IsEmpty()))
 			{
 				//
+			}
+			else if (useCppBackend)
+			{
+				BP_ZONE("BfCodeGen::RunLoop.CPP");
+
+				if (request->mOptions.mWriteLLVMIR)
+				{
+					BP_ZONE("BfCodeGen::RunLoop.CPP.IR");
+					std::error_code ec;
+					String fileName = request->mOutFileName + ".beir";
+
+					String str = beIRCodeGen->mBeModule->ToString();
+					FileStream fs;
+					if (!fs.Open(fileName, "w"))
+					{
+						if (!errorMsg.empty())
+							errorMsg += "\n";
+						errorMsg += "Failed writing IR '" + fileName + "': " + ec.message();
+					}
+					else
+						fs.WriteSNZ(str);
+				}
+
+				if (!hasCacheMatch)
+					beIRCodeGen->Process();
+				errorMsg = beIRCodeGen->mErrorMsg;
+
+				if (errorMsg.IsEmpty())
+				{
+					BeCppCodeGen cppCodeGen;
+					String cppFileName = request->mOutFileName + ".cpp";
+					String cppError;
+					if (!cppCodeGen.Generate(beIRCodeGen->mBeModule, cppFileName, cppError))
+					{
+						errorMsg = StrFormat("Failed to write C++ file '%s': %s", cppFileName.c_str(), cppError.c_str());
+						dirCache->FileFailed();
+					}
+				}
 			}
 			else if (request->mOptions.mOptLevel == BfOptLevel_OgPlus)
 			{
@@ -624,6 +662,8 @@ BfCodeGen::BfCodeGen()
 		{
 			"IDEHelper/Backend/BeCOFFObject.cpp",
 			"IDEHelper/Backend/BeCOFFObject.h",
+			"IDEHelper/Backend/BeCppCodeGen.cpp",
+			"IDEHelper/Backend/BeCppCodeGen.h",
 			"IDEHelper/Backend/BeContext.cpp",
 			"IDEHelper/Backend/BeContext.h",
 			"IDEHelper/Backend/BeDbgModule.h",

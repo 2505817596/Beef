@@ -301,6 +301,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Backend\BeCOFFObject.cpp" />
+    <ClCompile Include="Backend\BeCppCodeGen.cpp" />
     <ClCompile Include="Backend\BeContext.cpp" />
     <ClCompile Include="Backend\BeIRCodeGen.cpp" />
     <ClCompile Include="Backend\BeLibManger.cpp" />
@@ -367,6 +368,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Backend\BeCOFFObject.h" />
+    <ClInclude Include="Backend\BeCppCodeGen.h" />
     <ClInclude Include="Backend\BeContext.h" />
     <ClInclude Include="Backend\BeDbgModule.h" />
     <ClInclude Include="Backend\BeIRCodeGen.h" />

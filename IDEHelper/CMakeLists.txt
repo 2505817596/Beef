@@ -164,6 +164,7 @@ file(GLOB SRC_FILES
     Compiler/MemReporter.cpp
 
     Backend/BeContext.cpp
+    Backend/BeCppCodeGen.cpp
     Backend/BeIRCodeGen.cpp
     Backend/BeModule.cpp
 )

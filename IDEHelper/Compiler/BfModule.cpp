@@ -27433,6 +27433,7 @@ bool BfModule::Finish()
 
 		String objOutputPath;
 		String irOutputPath;
+		String cppOutputPath;
 		mIsModuleMutable = false;
 		//mOutFileNames.Clear();
 
@@ -27451,13 +27452,14 @@ bool BfModule::Finish()
 		codeGenOptions.mWriteLLVMIR = mCompiler->mOptions.mWriteIR;
 		codeGenOptions.mWriteObj = mCompiler->mOptions.mGenerateObj;
 		codeGenOptions.mWriteBitcode = mCompiler->mOptions.mGenerateBitcode;
+		codeGenOptions.mBackendKind = mCompiler->mOptions.mGenerateCpp ? BfCodeGenBackendKind_Cpp : BfCodeGenBackendKind_Default;
 		codeGenOptions.mVirtualMethodOfs = mCompiler->GetVDataPrefixDataCount() + mCompiler->GetDynCastVDataCount() + mCompiler->mMaxInterfaceSlots;
 		codeGenOptions.mDynSlotOfs = mSystem->mPtrSize - mCompiler->GetDynCastVDataCount() * 4;
 
 		mCompiler->mStats.mIRBytes += mBfIRBuilder->mStream.GetSize();
 		mCompiler->mStats.mConstBytes += mBfIRBuilder->mTempAlloc.GetAllocSize();
 
-		bool allowWriteToLib = true;
+		bool allowWriteToLib = codeGenOptions.mBackendKind == BfCodeGenBackendKind_Default;
 		if ((allowWriteToLib) && (codeGenOptions.mOptLevel == BfOptLevel_OgPlus) &&
 			(!mCompiler->IsHotCompile()) && (mModuleName != "vdata"))
 		{
@@ -27490,18 +27492,24 @@ bool BfModule::Finish()
 				outputPath += StrFormat("@%d", fileIdx + 1);
 			if (mCompiler->mOptions.mWriteIR)
 				irOutputPath = outputPath + ".ll";
+			if (mCompiler->mOptions.mGenerateCpp)
+				cppOutputPath = outputPath + ".cpp";
 			if (mCompiler->mOptions.mGenerateObj)
 			{
                 objOutputPath = outputPath + BF_OBJ_EXT;
 				moduleFileName.mFileName = objOutputPath;
 			}
+			else if (mCompiler->mOptions.mGenerateCpp)
+			{
+				moduleFileName.mFileName = cppOutputPath;
+			}
 			else if (mCompiler->mOptions.mWriteIR)
 			{
 				moduleFileName.mFileName = irOutputPath;
 			}
-			else if ((!mCompiler->mOptions.mGenerateObj) && (!mCompiler->mOptions.mGenerateBitcode) && (!mCompiler->mOptions.mWriteIR))
+			else if ((!mCompiler->mOptions.mGenerateObj) && (!mCompiler->mOptions.mGenerateBitcode) && (!mCompiler->mOptions.mWriteIR) && (!mCompiler->mOptions.mGenerateCpp))
 			{
-				BFMODULE_FATAL(this, "Neither obj nor IR specified");
+				BFMODULE_FATAL(this, "Neither obj, IR, nor C++ specified");
 			}
 
 			moduleFileName.mModuleWritten = writeModule;

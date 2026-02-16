@@ -11195,6 +11195,7 @@ BF_EXPORT void BF_CALLTYPE BfCompiler_SetOptions(BfCompiler* bfCompiler, BfProje
 		options->mWriteIR = (optionFlags & BfCompilerOptionFlag_WriteIR) != 0;
 		options->mGenerateObj = (optionFlags & BfCompilerOptionFlag_GenerateOBJ) != 0;
 		options->mGenerateBitcode = (optionFlags & BfCompilerOptionFlag_GenerateBitcode) != 0;
+		options->mGenerateCpp = (optionFlags & BfCompilerOptionFlag_GenerateCpp) != 0;
 		options->mNoFramePointerElim = (optionFlags & BfCompilerOptionFlag_NoFramePointerElim) != 0;
 		options->mInitLocalVariables = (optionFlags & BfCompilerOptionFlag_ClearLocalVars) != 0;
 		options->mRuntimeChecks = (optionFlags & BfCompilerOptionFlag_RuntimeChecks) != 0;

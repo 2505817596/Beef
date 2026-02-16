@@ -384,6 +384,18 @@ namespace IDE
 			}
 		}
 
+		void AppendLinuxCppRuntimeSystemLibs(String linkLine, Workspace.Options workspaceOptions)
+		{
+			if (mPlatformType != .Linux)
+				return;
+			if (workspaceOptions.mRuntimeKind == .Disabled)
+				return;
+			if (workspaceOptions.mIntermediateType != .CppCode)
+				return;
+
+			linkLine.Append("-ldl -lpthread -lbacktrace -lffi ");
+		}
+
 		bool QueueProjectGNULink(Project project, String targetPath, Workspace.Options workspaceOptions, Project.Options options, String objectsArg)
 		{
 			if (options.mBuildOptions.mBuildKind == .Intermediate)
@@ -408,6 +420,7 @@ namespace IDE
 		    bool isTest = options.mBuildOptions.mBuildKind == .Test;
 			bool isExe = ((project.mGeneralOptions.mTargetType != Project.TargetType.BeefLib) && (project.mGeneralOptions.mTargetType != Project.TargetType.BeefTest)) || (isTest);
 			bool isDynLib = (project.mGeneralOptions.mTargetType == Project.TargetType.BeefLib) && (options.mBuildOptions.mBuildKind == .DynamicLib);
+			bool isCppCode = workspaceOptions.mIntermediateType == .CppCode;
 
 			if (options.mBuildOptions.mBuildKind == .StaticLib)
 				isExe = false;
@@ -416,7 +429,34 @@ namespace IDE
 			{
 				CopyLibFiles(targetPath, workspaceOptions, options);
 
+				String beefySysLibPath = scope .();
+
+				if (isCppCode)
+				{
+					if (mPlatformType != .Linux)
+					{
+						gApp.OutputErrorLine("CppCode backend linking currently supports Linux only.");
+						return false;
+					}
+
+					beefySysLibPath.Append(gApp.mInstallDir, "libBeefySysLib_d.a");
+					IDEUtils.FixFilePath(beefySysLibPath);
+					if (!File.Exists(beefySysLibPath))
+					{
+						beefySysLibPath.Clear();
+						beefySysLibPath.Append(gApp.mInstallDir, "libBeefySysLib.a");
+						IDEUtils.FixFilePath(beefySysLibPath);
+					}
+					if (!File.Exists(beefySysLibPath))
+					{
+						gApp.OutputErrorLine("Failed to locate 'libBeefySysLib[_d].a' in '{}'.", gApp.mInstallDir);
+						return false;
+					}
+				}
+
 			    String linkLine = scope String();
+				if (isCppCode)
+					linkLine.Append("-std=c++17 ");
 				if (options.mCOptions.mEmitDebugInfo)
 					linkLine.Append("-g ");
 				if (!isDebug)
@@ -456,6 +496,11 @@ namespace IDE
 					linkLine.Append("-Wl,-no_compact_unwind ");
 
 			    linkLine.Append(objectsArg);
+				if (isCppCode)
+				{
+					IDEUtils.AppendWithOptionalQuotes(linkLine, beefySysLibPath);
+					linkLine.Append(" ");
+				}
 
 				//var destDir = scope String();
 				//Path.GetDirectoryName();
@@ -607,6 +652,7 @@ namespace IDE
 						gApp.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, options.mBuildOptions.mOtherLinkFlags, "link flags", linkFlags);
 						linkLine.Append(linkFlags, " ");
 					}
+					AppendLinuxCppRuntimeSystemLibs(linkLine, workspaceOptions);
 
 			        String compilerExePath = (workspaceOptions.mToolsetType == .GNU) ? gccExePath : clangExePath;
 					String workingDir = scope String();
@@ -1697,13 +1743,154 @@ namespace IDE
 		        return true;
 		    }
 
+			bool isCppCodeObjCompile = (workspaceOptions.mIntermediateType == .CppCode) && (workspaceOptions.mToolsetType == .GNU);
+			bool cppForceRebuild = false;
+			bool cppIsWSL = false;
+			String cppCompilerExePath = scope .();
+			String cppCompileWorkingDir = scope .();
+			String cppCompileFlags = scope .();
+			String cppObjDir = scope .();
+
+			if (isCppCodeObjCompile)
+			{
+				bool isDebug = gApp.mConfigName.IndexOf("Debug", true) != -1;
+
+#if BF_PLATFORM_WINDOWS
+				cppIsWSL = mPlatformType == .Linux;
+#else
+				cppIsWSL = false;
+#endif
+
+				cppCompilerExePath.Append("/usr/bin/c++");
+				if (File.Exists("/usr/bin/clang++"))
+					cppCompilerExePath.Set("/usr/bin/clang++");
+
+				bool useOverrideCompiler = false;
+				Dictionary<String, String> envVars = scope .();
+				defer { for (var kv in envVars) { delete kv.key; delete kv.value; } }
+				Environment.GetEnvironmentVariables(envVars);
+
+				String overrideCompiler = null;
+				if (!envVars.TryGetValue("BEEF_CXX", out overrideCompiler))
+					envVars.TryGetValue("BEEF_CC", out overrideCompiler);
+
+				if (!String.IsNullOrEmpty(overrideCompiler))
+				{
+					cppCompilerExePath.Set(overrideCompiler);
+					cppIsWSL = false;
+					useOverrideCompiler = true;
+				}
+
+				if (useOverrideCompiler)
+				{
+					Path.GetDirectoryPath(targetPath, cppCompileWorkingDir);
+				}
+				else
+				{
+#if BF_PLATFORM_WINDOWS
+					if (!llvmDir.IsEmpty)
+						cppCompileWorkingDir.Append(llvmDir, "bin");
+					else
+						cppCompileWorkingDir.Append(gApp.mInstallDir);
+#else
+					cppCompileWorkingDir.Append(gApp.mInstallDir);
+#endif
+				}
+
+				cppCompileFlags.Append("-std=c++17 ");
+				if (options.mCOptions.mEmitDebugInfo)
+					cppCompileFlags.Append("-g ");
+				if (!isDebug)
+					cppCompileFlags.Append("-O2 ");
+				if ((project.mGeneralOptions.mTargetType == Project.TargetType.BeefLib) && (options.mBuildOptions.mBuildKind == .DynamicLib))
+					cppCompileFlags.Append("-fPIC ");
+
+				cppObjDir.Append(projectBuildDir, "/cppobj");
+				IDEUtils.FixFilePath(cppObjDir);
+				if (Directory.CreateDirectory(cppObjDir) case .Err)
+				{
+					gApp.OutputErrorLine("Failed to create CppCode object directory '{}'.", cppObjDir);
+					return false;
+				}
+
+				String cppBuildInfoPath = scope String(cppObjDir, "/buildinfo.txt");
+				String cppBuildInfo = scope String();
+				cppBuildInfo.Append(cppCompilerExePath, "|", cppCompileFlags);
+
+				String oldCppBuildInfo = scope String();
+				File.ReadAllText(cppBuildInfoPath, oldCppBuildInfo).IgnoreError();
+				cppForceRebuild = oldCppBuildInfo != cppBuildInfo;
+				if (cppForceRebuild)
+				{
+					if (File.WriteAllText(cppBuildInfoPath, cppBuildInfo) case .Err)
+					{
+						gApp.OutputErrorLine("Failed to write {}", cppBuildInfoPath);
+						return false;
+					}
+				}
+			}
+
 		    String objectsArg = scope String();
 			var argBuilder = scope IDEApp.ArgBuilder(objectsArg, workspaceOptions.mToolsetType != .GNU);
+			bool hadCppObjRebuild = false;
 		    for (var bfFileName in bfFileNames)
 		    {
-				argBuilder.AddFileName(bfFileName);
-				argBuilder.AddSep();
+				if (isCppCodeObjCompile)
+				{
+					String bfBaseName = scope String();
+					Path.GetFileNameWithoutExtension(bfFileName, bfBaseName);
+					if (bfBaseName.IsWhiteSpace)
+						bfBaseName.Set("bfmodule");
+
+					String objName = scope String(cppObjDir, "/", bfBaseName);
+					objName.AppendF("_{0:X8}.o", (uint32)bfFileName.GetHashCode());
+					IDEUtils.FixFilePath(objName);
+
+					bool needsCppObjRebuild = cppForceRebuild || !File.Exists(objName);
+					if (!needsCppObjRebuild)
+					{
+						let srcFileTime = File.GetLastWriteTime(bfFileName).GetValueOrDefault().ToFileTime();
+						let objFileTime = File.GetLastWriteTime(objName).GetValueOrDefault().ToFileTime();
+						needsCppObjRebuild = srcFileTime > objFileTime;
+					}
+
+					if (needsCppObjRebuild)
+					{
+						String compileArgs = scope String();
+						compileArgs.Append(cppCompileFlags);
+						compileArgs.Append("-c ");
+						IDEUtils.AppendWithOptionalQuotes(compileArgs, bfFileName);
+						compileArgs.Append(" -o ");
+						IDEUtils.AppendWithOptionalQuotes(compileArgs, objName);
+
+						String compilerExePath = scope String(cppCompilerExePath);
+						if (cppIsWSL)
+						{
+							compileArgs.Insert(0, " ");
+							compileArgs.Insert(0, compilerExePath);
+							compilerExePath.Set("wsl.exe");
+							WSLPathFix(compileArgs);
+						}
+
+						var runCmd = gApp.QueueRun(compilerExePath, compileArgs, cppCompileWorkingDir, .UTF8);
+						runCmd.mReference = new .(project.mProjectName);
+						runCmd.mOnlyIfNotFailed = true;
+						runCmd.mParallelGroup = 1;
+						hadCppObjRebuild = true;
+					}
+
+					argBuilder.AddFileName(objName);
+					argBuilder.AddSep();
+				}
+				else
+				{
+					argBuilder.AddFileName(bfFileName);
+					argBuilder.AddSep();
+				}
 		    }
+
+			if (hadCppObjRebuild)
+				project.mNeedsTargetRebuild = true;
 
 		    for (var objName in clangAllObjNames)
 		    {                

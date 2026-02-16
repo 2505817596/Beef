@@ -134,6 +134,7 @@ public:
 		bool mWriteIR;
 		bool mGenerateObj;
 		bool mGenerateBitcode;
+		bool mGenerateCpp;
 
 		int mAllocStackCount;
 		bool mExtraResolveChecks;
@@ -173,6 +174,7 @@ public:
 			mWriteIR = false;
 			mGenerateObj = true;
 			mGenerateBitcode = false;
+			mGenerateCpp = false;
 			mEnableCustodian = false;
 			mEnableSideStack = false;
 			mHasVDataExtender = false;

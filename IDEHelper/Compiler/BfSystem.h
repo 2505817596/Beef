@@ -209,6 +209,7 @@ enum BfCompilerOptionFlags
 	BfCompilerOptionFlag_OmitDebugHelpers   = 0x10000,
 	BfCompilerOptionFlag_NoFramePointerElim = 0x20000,
 	BfCompilerOptionFlag_ArithmeticChecks = 0x40000,
+	BfCompilerOptionFlag_GenerateCpp = 0x80000,
 };
 
 enum BfTypeFlags
@@ -404,6 +405,12 @@ enum BfPICLevel
 	BfPICLevel_Big
 };
 
+enum BfCodeGenBackendKind
+{
+	BfCodeGenBackendKind_Default,
+	BfCodeGenBackendKind_Cpp,
+};
+
 struct BfCodeGenOptions
 {
 	bool mIsHotCompile;
@@ -413,6 +420,7 @@ struct BfCodeGenOptions
 	BfAsmKind mAsmKind;
 	bool mWriteToLib;
 	bool mWriteLLVMIR;
+	BfCodeGenBackendKind mBackendKind;
 
 	int16 mVirtualMethodOfs;
 	int16 mDynSlotOfs;
@@ -468,6 +476,7 @@ struct BfCodeGenOptions
 		mAsmKind = BfAsmKind_None;
 		mWriteToLib = false;
 		mWriteLLVMIR = false;
+		mBackendKind = BfCodeGenBackendKind_Default;
 		mVirtualMethodOfs = 0;
 		mDynSlotOfs = 0;
 
@@ -522,6 +531,7 @@ struct BfCodeGenOptions
 		hashCtx.Mixin(mAsmKind);
 		hashCtx.Mixin(mWriteToLib);
 		hashCtx.Mixin(mWriteLLVMIR);
+		hashCtx.Mixin(mBackendKind);
 		hashCtx.Mixin(mVirtualMethodOfs);
 		hashCtx.Mixin(mDynSlotOfs);
 

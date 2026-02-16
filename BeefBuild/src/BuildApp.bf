@@ -23,6 +23,7 @@ namespace BeefBuild
 		public bool mTestIncludeIgnored;
 		public bool mDidRun;
 		public bool mWantsGenerate = false;
+		public bool mEmitCpp;
 		public bool mHandledVerb;
 		public String mRunArgs ~ delete _;
 		public String mStartingDirectory = new .() ~ delete _;
@@ -54,6 +55,18 @@ namespace BeefBuild
 			//mConfigName.Clear();
 			//mPlatformName.Clear();
 			//Test();
+		}
+
+		void ApplyEmitCppOverrides()
+		{
+			let workspaceOptions = GetCurWorkspaceOptions();
+			if (workspaceOptions == null)
+			{
+				Fail("Unable to resolve workspace options for '-emitcpp'.");
+				return;
+			}
+
+			workspaceOptions.mIntermediateType = .CppCode;
 		}
 
 		public override void Init()
@@ -123,6 +136,8 @@ namespace BeefBuild
 				return;
 
 			WorkspaceLoaded();
+			if (mEmitCpp)
+				ApplyEmitCppOverrides();
 
 			if (mWantsGenerate)
 			{
@@ -195,6 +210,9 @@ namespace BeefBuild
 					return true;
 				case "-noir":
 					mConfig_NoIR = true;
+					return true;
+				case "-emitcpp":
+					mEmitCpp = true;
 					return true;
 				case "-update":
 					if (mWantUpdateVersionLocks == null)
@@ -328,6 +346,14 @@ namespace BeefBuild
 
 						return true;
 					}
+				case "-intermediate":
+					if ((value == "cpp") || (value == "cppcode"))
+					{
+						mEmitCpp = true;
+						return true;
+					}
+					Fail(scope String()..AppendF("Unsupported intermediate backend '{}'. Supported: cpp", value));
+					return true;
 				}
 			}
 

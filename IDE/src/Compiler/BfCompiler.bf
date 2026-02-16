@@ -38,7 +38,8 @@ namespace IDE.Compiler
 			DebugAlloc = 0x8000,
 			OmitDebugHelpers = 0x10000,
 			NoFramePointerElim = 0x20000,
-			ArithmeticChecks = 0x40000
+			ArithmeticChecks = 0x40000,
+			GenerateCPP = 0x80000
 		}
 
 		public enum UsedOutputFlags : int32
@@ -718,6 +719,7 @@ namespace IDE.Compiler
 			}	
 			else
 			{
+				SetOpt(options.mIntermediateType == .CppCode, .GenerateCPP);
 				SetOpt((options.mIntermediateType == .IRCode) || (options.mIntermediateType == .ObjectAndIRCode) || (options.mIntermediateType == .BitcodeAndIRCode), .WriteIR);
 				SetOpt((options.mIntermediateType == .Object) || (options.mIntermediateType == .ObjectAndIRCode) ||
 					(options.mIntermediateType == .Bitcode) || (options.mIntermediateType == .BitcodeAndIRCode), .GenerateOBJ);
