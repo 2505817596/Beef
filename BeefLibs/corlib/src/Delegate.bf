@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Collections;
+using System.Threading;
 
 namespace System
 {
@@ -92,6 +93,7 @@ namespace System
 	static class DelegateMethodCache
 	{
 		static Dictionary<int, MethodInfo> sMethodInfoCache = new .() ~ delete _;
+		static Monitor sMonitor = new .() ~ delete _;
 		static bool sCacheBuilt;
 
 		public static MethodInfo GetMethodInfo(void* funcPtr)
@@ -101,21 +103,36 @@ namespace System
 			if (funcPtr == null)
 				return default;
 
-			BuildMethodInfoCache();
+			let funcPtrKey = (int)funcPtr;
+			using (sMonitor.Enter())
+			{
+				BuildMethodInfoCache();
 
-			MethodInfo methodInfo = default;
-			if (sMethodInfoCache.TryGetValue((int)funcPtr, out methodInfo))
-				return methodInfo;
+				MethodInfo methodInfo = default;
+				if (sMethodInfoCache.TryGetValue(funcPtrKey, out methodInfo))
+					return methodInfo;
+
+				// Handle hot reload / runtime patching where existing type method pointers changed
+				// but no new type was added.
+				BuildMethodInfoCache(true);
+				if (sMethodInfoCache.TryGetValue(funcPtrKey, out methodInfo))
+					return methodInfo;
+			}
 
 			return default;
 		}
 
-		static void BuildMethodInfoCache()
+		static void BuildMethodInfoCache(bool forceFullRefresh = false)
 		{
+			if (forceFullRefresh)
+			{
+				sMethodInfoCache.Clear();
+				sCacheBuilt = false;
+			}
+
 			if (sCacheBuilt)
 				return;
 
-			sCacheBuilt = true;
 			Type.[Friend]GetType((.)0);
 			for (var type in Type.Types)
 			{
@@ -139,6 +156,8 @@ namespace System
 					}
 				}
 			}
+
+			sCacheBuilt = true;
 		}
 	}
 }

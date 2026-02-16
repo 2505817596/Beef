@@ -8640,7 +8640,9 @@ BfDelegateBindExpression* BfReducer::CreateDelegateBindExpression(BfAstNode* all
 BfLambdaBindExpression* BfReducer::CreateLambdaBindExpression(BfAstNode* allocNode, BfTokenNode* parenToken)
 {
 	auto lambdaBindExpr = mAlloc->Alloc<BfLambdaBindExpression>();
-	bool allowTypedParams = allocNode != NULL;
+	// Once we know this is a lambda expression, typed parameters are valid for both
+	// "new (...) =>" and "(...) =>" forms.
+	bool allowTypedParams = true;
 	BfDeferredAstSizedArray<BfIdentifierNode*> params(lambdaBindExpr->mParams, mAlloc);
 	BfDeferredAstSizedArray<BfAttributeDirective*> paramAttributes(lambdaBindExpr->mParamAttributes, mAlloc);
 	BfDeferredAstSizedArray<BfTypeReference*> paramTypeRefs(lambdaBindExpr->mParamTypeRefs, mAlloc);
