@@ -1743,7 +1743,7 @@ namespace IDE
 		        return true;
 		    }
 
-			bool isCppCodeObjCompile = (workspaceOptions.mIntermediateType == .CppCode) && (workspaceOptions.mToolsetType == .GNU);
+			bool isCppCodeObjCompile = workspaceOptions.mIntermediateType == .CppCode;
 			bool cppForceRebuild = false;
 			bool cppIsWSL = false;
 			String cppCompilerExePath = scope .();
@@ -1761,10 +1761,6 @@ namespace IDE
 				cppIsWSL = false;
 #endif
 
-				cppCompilerExePath.Append("/usr/bin/c++");
-				if (File.Exists("/usr/bin/clang++"))
-					cppCompilerExePath.Set("/usr/bin/clang++");
-
 				bool useOverrideCompiler = false;
 				Dictionary<String, String> envVars = scope .();
 				defer { for (var kv in envVars) { delete kv.key; delete kv.value; } }
@@ -1780,8 +1776,52 @@ namespace IDE
 					cppIsWSL = false;
 					useOverrideCompiler = true;
 				}
+				else if (workspaceOptions.mToolsetType == .GNU)
+				{
+					cppCompilerExePath.Append("/usr/bin/c++");
+					if (File.Exists("/usr/bin/clang++"))
+						cppCompilerExePath.Set("/usr/bin/clang++");
+				}
+				else if (mPlatformType == .Windows)
+				{
+					String vsBinPath = scope String((mPtrSize == 8) ? gApp.mSettings.mVSSettings.mBin64Path : gApp.mSettings.mVSSettings.mBin32Path);
+					IDEUtils.FixFilePath(vsBinPath);
+					if (vsBinPath.IsWhiteSpace)
+					{
+						gApp.OutputErrorLine("Visual Studio tool path not configured. Check Visual Studio configuration in File\\Preferences\\Settings.");
+						return false;
+					}
+
+					String vsBinPathNorm = scope String(vsBinPath);
+					vsBinPathNorm.Replace('\\', '/');
+
+					int msvcIdx = vsBinPathNorm.IndexOf("/MSVC/", true);
+					if (msvcIdx != -1)
+					{
+						cppCompilerExePath.Append(vsBinPathNorm, 0, msvcIdx);
+						cppCompilerExePath.Append("/Llvm/x64/bin/clang++.exe");
+					}
+					else
+						cppCompilerExePath.Append(vsBinPath, "/clang++.exe");
+					IDEUtils.FixFilePath(cppCompilerExePath);
+
+					if (!File.Exists(cppCompilerExePath))
+					{
+						gApp.OutputErrorLine("Failed to locate clang++ for CppCode backend at '{}'. Install Visual Studio LLVM tools or set BEEF_CXX.", cppCompilerExePath);
+						return false;
+					}
+				}
+				else
+				{
+					gApp.OutputErrorLine("CppCode backend object compilation currently supports GNU toolset or Windows platform.");
+					return false;
+				}
 
 				if (useOverrideCompiler)
+				{
+					Path.GetDirectoryPath(targetPath, cppCompileWorkingDir);
+				}
+				else if ((mPlatformType == .Windows) && (workspaceOptions.mToolsetType != .GNU))
 				{
 					Path.GetDirectoryPath(targetPath, cppCompileWorkingDir);
 				}
@@ -1799,10 +1839,17 @@ namespace IDE
 
 				cppCompileFlags.Append("-std=c++17 ");
 				if (options.mCOptions.mEmitDebugInfo)
-					cppCompileFlags.Append("-g ");
+				{
+					if ((mPlatformType == .Windows) && (workspaceOptions.mToolsetType != .GNU))
+						cppCompileFlags.Append("-gcodeview ");
+					else
+						cppCompileFlags.Append("-g ");
+				}
 				if (!isDebug)
 					cppCompileFlags.Append("-O2 ");
-				if ((project.mGeneralOptions.mTargetType == Project.TargetType.BeefLib) && (options.mBuildOptions.mBuildKind == .DynamicLib))
+				if ((mPlatformType == .Windows) && (workspaceOptions.mToolsetType != .GNU))
+					cppCompileFlags.Append((mPtrSize == 8) ? "-m64 " : "-m32 ");
+				if ((mPlatformType != .Windows) && (project.mGeneralOptions.mTargetType == Project.TargetType.BeefLib) && (options.mBuildOptions.mBuildKind == .DynamicLib))
 					cppCompileFlags.Append("-fPIC ");
 
 				cppObjDir.Append(projectBuildDir, "/cppobj");
@@ -1837,13 +1884,23 @@ namespace IDE
 		    {
 				if (isCppCodeObjCompile)
 				{
+					if (!bfFileName.EndsWith(".cpp", .OrdinalIgnoreCase))
+					{
+						argBuilder.AddFileName(bfFileName);
+						argBuilder.AddSep();
+						continue;
+					}
+
 					String bfBaseName = scope String();
 					Path.GetFileNameWithoutExtension(bfFileName, bfBaseName);
 					if (bfBaseName.IsWhiteSpace)
 						bfBaseName.Set("bfmodule");
 
 					String objName = scope String(cppObjDir, "/", bfBaseName);
-					objName.AppendF("_{0:X8}.o", (uint32)bfFileName.GetHashCode());
+					if (workspaceOptions.mToolsetType == .GNU)
+						objName.AppendF("_{0:X8}.o", (uint32)bfFileName.GetHashCode());
+					else
+						objName.AppendF("_{0:X8}.obj", (uint32)bfFileName.GetHashCode());
 					IDEUtils.FixFilePath(objName);
 
 					bool needsCppObjRebuild = cppForceRebuild || !File.Exists(objName);

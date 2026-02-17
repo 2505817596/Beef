@@ -389,6 +389,27 @@ public:
 		return name;
 	}
 
+	String GetLinkNameSuffix(const StringImpl& originalName, const StringImpl& emittedName)
+	{
+		if (originalName == emittedName)
+			return "";
+		return StrFormat(" BF_LINKNAME(%s)", EscapeStringLiteral(originalName).c_str());
+	}
+
+	String GetFunctionLinkNameSuffix(BeFunction* beFunc)
+	{
+		if ((beFunc == NULL) || (beFunc->mLinkageType == BfIRLinkageType_Internal))
+			return "";
+		return GetLinkNameSuffix(beFunc->mName, GetFunctionName(beFunc));
+	}
+
+	String GetGlobalLinkNameSuffix(BeGlobalVariable* globalVar)
+	{
+		if ((globalVar == NULL) || (globalVar->mLinkageType == BfIRLinkageType_Internal))
+			return "";
+		return GetLinkNameSuffix(globalVar->mName, GetGlobalName(globalVar));
+	}
+
 	String GetValueName(BeValue* value)
 	{
 		auto itr = mValueNames.find(value);
@@ -1444,6 +1465,7 @@ public:
 		if (IsKnownCRuntimeFunction(beFunc->mName))
 			return;
 		String sig = BuildFunctionSignature(beFunc, true);
+		sig += GetFunctionLinkNameSuffix(beFunc);
 		mOut += sig;
 		mOut += ";\n";
 	}
@@ -1909,6 +1931,12 @@ public:
 		mOut += "#include <cstring>\n";
 		mOut += "#include <atomic>\n";
 		mOut += "#include <cmath>\n\n";
+		mOut += "extern \"C\" int select(int, void*, void*, void*, void*);\n\n";
+		mOut += "#if defined(__clang__) || defined(__GNUC__)\n";
+		mOut += "#define BF_LINKNAME(sym) __asm__(sym)\n";
+		mOut += "#else\n";
+		mOut += "#define BF_LINKNAME(sym)\n";
+		mOut += "#endif\n\n";
 
 		// Bridge char8/int8_t interop to C runtime parsing APIs without requiring per-call casts.
 		mOut += "static inline double strtod(int8_t* str, int8_t** endPtr)\n";
@@ -1979,21 +2007,18 @@ public:
 				auto globalVar = mModule->mGlobalVariables[globalIdx];
 				String varName = GetGlobalName(globalVar);
 				auto varType = GetCppType(globalVar->mType);
+				auto varLinkSuffix = GetGlobalLinkNameSuffix(globalVar);
 
-				if (globalVar->mStorageKind == BfIRStorageKind_Import)
-				{
-					mOut += StrFormat("extern \"C\" %s %s;\n", varType.c_str(), varName.c_str());
-					continue;
-				}
 				if (globalVar->mLinkageType == BfIRLinkageType_Internal)
 					continue;
 
-				mOut += "extern ";
+				mOut += "extern \"C\" ";
 				if (globalVar->mIsTLS)
 					mOut += "thread_local ";
 				mOut += varType;
 				mOut += " ";
 				mOut += varName;
+				mOut += varLinkSuffix;
 				mOut += ";\n";
 			}
 			mOut += "\n";
@@ -2016,6 +2041,7 @@ public:
 					auto globalVar = mModule->mGlobalVariables[globalIdx];
 					String varName = GetGlobalName(globalVar);
 					auto varType = GetCppType(globalVar->mType);
+					auto varLinkSuffix = GetGlobalLinkNameSuffix(globalVar);
 
 					if (globalVar->mStorageKind == BfIRStorageKind_Import)
 						continue;
@@ -2026,15 +2052,19 @@ public:
 					if (isEarlyInternal != wantEarlyInternal)
 						continue;
 
+					bool isInternal = (globalVar->mLinkageType == BfIRLinkageType_Internal);
+					if (!isInternal)
+						mOut += "extern \"C\" ";
 					if (globalVar->mAlign > 0)
 						mOut += StrFormat("alignas(%d) ", NormalizeAlign(globalVar->mAlign));
-					if (globalVar->mLinkageType == BfIRLinkageType_Internal)
+					if (isInternal)
 						mOut += "static ";
 					if (globalVar->mIsTLS)
 						mOut += "thread_local ";
 					mOut += varType;
 					mOut += " ";
 					mOut += varName;
+					mOut += varLinkSuffix;
 
 					if (globalVar->mInitializer != NULL)
 					{
