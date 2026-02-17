@@ -1931,8 +1931,10 @@ public:
 		mOut += "#include <cstring>\n";
 		mOut += "#include <atomic>\n";
 		mOut += "#include <cmath>\n\n";
-		mOut += "extern \"C\" int select(int, void*, void*, void*, void*);\n\n";
-		mOut += "#if defined(__clang__) || defined(__GNUC__)\n";
+		mOut += "#if defined(_WIN32)\n";
+		mOut += "extern \"C\" int select(int, void*, void*, void*, void*);\n";
+		mOut += "#endif\n\n";
+		mOut += "#if defined(_WIN32) && (defined(__clang__) || defined(__GNUC__))\n";
 		mOut += "#define BF_LINKNAME(sym) __asm__(sym)\n";
 		mOut += "#else\n";
 		mOut += "#define BF_LINKNAME(sym)\n";
