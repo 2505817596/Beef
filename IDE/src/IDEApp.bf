@@ -10712,7 +10712,7 @@ namespace IDE
 
 		[CLink] static extern char8* getenv(char8*);
 
-		public bool DoResolveConfigString(String platformName, Workspace.Options workspaceOptions, Project project, Project.Options options, StringView configString, String error, String result)
+		public bool DoResolveConfigString(String platformName, Workspace.Options workspaceOptions, Project project, Project.Options options, StringView configString, String error, String result, ScriptManager.Context scriptContext = null)
 		{
 			int startIdx = result.Length;
 			int i = startIdx;
@@ -10769,6 +10769,7 @@ namespace IDE
 						{
 							String replaceStr = scope String(result, i + 2, parenPos - i - 2);
 							String newString = null;
+							bool isVarLookup = false;
 
 							if (replaceStr.Contains(' '))
 							{
@@ -10809,7 +10810,16 @@ namespace IDE
 									else
 										cmdErr = "Invalid number of arguments";
 								case "Var":
-									break ReplaceBlock;
+									if ((scriptContext != null) && (args.Count > 0))
+									{
+										if (scriptContext.mVars.TryGetValueAlt(args[0], var value))
+										{
+											if (value.VariantType == typeof(String))
+												newString = scope:ReplaceBlock .(value.Get<String>());
+										}
+									}
+									else
+										break ReplaceBlock;
 								case "Env":
 									if (args.Count == 1)
 									{
@@ -11186,10 +11196,10 @@ namespace IDE
 			}
 		}
 
-		public bool ResolveConfigString(String platformName, Workspace.Options workspaceOptions, Project project, Project.Options options, StringView configString, String errorContext, String outResult)
+		public bool ResolveConfigString(String platformName, Workspace.Options workspaceOptions, Project project, Project.Options options, StringView configString, String errorContext, String outResult, ScriptManager.Context scriptContext = null)
 		{
 			String errorString = scope String();
-			if (!DoResolveConfigString(platformName, workspaceOptions, project, options, configString, errorString, outResult))
+			if (!DoResolveConfigString(platformName, workspaceOptions, project, options, configString, errorString, outResult, scriptContext))
 			{
 				OutputErrorLine("Invalid macro in {0}: {1}", errorContext, errorString);
 				return false;
