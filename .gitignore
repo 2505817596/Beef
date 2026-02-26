@@ -29,6 +29,7 @@ IDE/Tests/NewProject*/*
 builds/*
 build_uclibc_arm/
 wasm/*
+IDE/wasm/*
 BeefManaged/*
 BeefPerf.txt
 IDE/Tests/Rando

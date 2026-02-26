@@ -10769,7 +10769,6 @@ namespace IDE
 						{
 							String replaceStr = scope String(result, i + 2, parenPos - i - 2);
 							String newString = null;
-							bool isVarLookup = false;
 
 							if (replaceStr.Contains(' '))
 							{
