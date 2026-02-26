@@ -17388,7 +17388,7 @@ void BfModule::EmitDeferredScopeCalls(bool useSrcPositions, BfScopeData* scopeDa
 				BfDeferredCallEmitState deferredCallEmitState;
 				deferredCallEmitState.mCloseNode = deferCloseNode;
 				SetAndRestoreValue<BfDeferredCallEmitState*> prevDeferredCallEmitState(mCurMethodState->mDeferredCallEmitState, &deferredCallEmitState);
-				SetAndRestoreValue<bool> prevIgnoredWrites(mBfIRBuilder->mIgnoreWrites, deferredCallEntry->mIgnored);
+				SetAndRestoreValue<bool> prevIgnoredWrites(mBfIRBuilder->mIgnoreWrites, mBfIRBuilder->mIgnoreWrites || deferredCallEntry->mIgnored);
 				SetAndRestoreValue<BfMixinState*> prevMixinState(mCurMethodState->mMixinState, checkScope->mMixinState);
 
 				if (deferCloseNode != NULL)

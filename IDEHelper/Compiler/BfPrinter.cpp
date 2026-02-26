@@ -2422,26 +2422,29 @@ void BfPrinter::Visit(BfForStatement* forStmt)
 	Visit(forStmt->ToBase());
 
 	VisitChild(forStmt->mForToken);
-	ExpectSpace();
-	VisitChild(forStmt->mOpenParen);
-	for (int i = 0; i < (int) forStmt->mInitializers.size(); i++)
+	if (forStmt->mOpenParen != NULL)
 	{
-		if (i > 0)
-			VisitChildNoRef(forStmt->mInitializerCommas.GetSafe(i - 1));
-		VisitChild(forStmt->mInitializers[i]);
+		ExpectSpace();
+		VisitChild(forStmt->mOpenParen);
+		for (int i = 0; i < (int) forStmt->mInitializers.size(); i++)
+		{
+			if (i > 0)
+				VisitChildNoRef(forStmt->mInitializerCommas.GetSafe(i - 1));
+			VisitChild(forStmt->mInitializers[i]);
+		}
+		VisitChild(forStmt->mInitializerSemicolon);
+		ExpectSpace();
+		VisitChild(forStmt->mCondition);
+		VisitChild(forStmt->mConditionSemicolon);
+		ExpectSpace();
+		for (int i = 0; i < (int) forStmt->mIterators.size(); i++)
+		{
+			if (i > 0)
+				VisitChildNoRef(forStmt->mIteratorCommas.GetSafe(i - 1));
+			VisitChild(forStmt->mIterators[i]);
+		}
+		VisitChild(forStmt->mCloseParen);
 	}
-	VisitChild(forStmt->mInitializerSemicolon);
-	ExpectSpace();
-	VisitChild(forStmt->mCondition);
-	VisitChild(forStmt->mConditionSemicolon);
-	ExpectSpace();
-	for (int i = 0; i < (int) forStmt->mIterators.size(); i++)
-	{
-		if (i > 0)
-			VisitChildNoRef(forStmt->mIteratorCommas.GetSafe(i - 1));
-		VisitChild(forStmt->mIterators[i]);
-	}
-	VisitChild(forStmt->mCloseParen);
 	VisitChildNextLine(forStmt->mEmbeddedStatement);
 }
 

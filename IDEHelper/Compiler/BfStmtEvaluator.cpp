@@ -4097,7 +4097,6 @@ void BfModule::DoIfStatement(BfIfStatement* ifStmt, bool includeTrueStmt, bool i
 	}
 
 	mBfIRBuilder->AddBlock(contBB);
-	mBfIRBuilder->SetInsertPoint(contBB);
 
 	if (isConstBranch)
 		mCurMethodState->SetHadReturn(constResult ? trueHadReturn : falseHadReturn);

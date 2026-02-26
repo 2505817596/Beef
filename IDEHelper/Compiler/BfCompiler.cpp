@@ -10193,7 +10193,10 @@ BF_EXPORT const char* BF_CALLTYPE BfCompiler_GetCollapseRegions(BfCompiler* bfCo
 
 		virtual void Visit(BfForStatement* forStatement) override
 		{
-			Add(forStatement->mCloseParen, forStatement->mEmbeddedStatement);
+			BfAstNode* anchorNode = forStatement->mCloseParen;
+			if (anchorNode == NULL)
+				anchorNode = forStatement->mForToken;
+			Add(anchorNode, forStatement->mEmbeddedStatement);
 			BfElementVisitor::Visit(forStatement);
 		}
 

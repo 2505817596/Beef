@@ -6053,6 +6053,44 @@ static bool shouldEmitUnifiedLTOModueFlag(const llvm::Triple& targetTriple, cons
 		(CodeGenOpts.PrepareForThinLTO || shouldEmitRegularLTOSummary());*/
 }
 
+static void FixInvalidBlockTerminators(llvm::Module* module, llvm::LLVMContext* llvmContext)
+{
+	llvm::IRBuilder<> irBuilder(*llvmContext);
+
+	for (auto& func : *module)
+	{
+		if (func.isDeclaration())
+			continue;
+
+		for (auto& bb : func)
+		{
+			llvm::Instruction* firstTerminator = nullptr;
+			for (auto& inst : bb)
+			{
+				if (inst.isTerminator())
+				{
+					firstTerminator = &inst;
+					break;
+				}
+			}
+
+			if (firstTerminator == nullptr)
+			{
+				irBuilder.SetInsertPoint(&bb);
+				irBuilder.CreateUnreachable();
+				continue;
+			}
+
+			auto itr = std::next(firstTerminator->getIterator());
+			while (itr != bb.end())
+			{
+				auto& inst = *itr++;
+				inst.eraseFromParent();
+			}
+		}
+	}
+}
+
 void BfIRCodeGen::RunOptimizationPipeline(const llvm::Triple& targetTriple)
 {
 	bool verifyModule = true;
@@ -6096,6 +6134,8 @@ void BfIRCodeGen::RunOptimizationPipeline(const llvm::Triple& targetTriple)
 
 	//llvm::ModulePassManager MPM;
 	// Add a verifier pass, before any other passes, to catch CodeGen issues.
+
+	FixInvalidBlockTerminators(mLLVMModule, mLLVMContext);
 
 	llvm::ModulePassManager MPM;
 	if (verifyModule)

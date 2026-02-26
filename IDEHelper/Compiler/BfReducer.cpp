@@ -3706,12 +3706,28 @@ BfStatement* BfReducer::CreateForStatement(BfAstNode* node)
 {
 	int startReadIdx = mVisitorPos.mReadPos;
 	auto forToken = BfNodeDynCast<BfTokenNode>(node);
+	auto nextNode = mVisitorPos.GetNext();
+	auto nextTokenNode = BfNodeDynCast<BfTokenNode>(nextNode);
+	if ((nextTokenNode != NULL && nextTokenNode->mToken == BfToken_LBrace) || BfNodeIsA<BfBlock>(nextNode))
+	{
+		auto forStatement = mAlloc->Alloc<BfForStatement>();
+		ReplaceNode(forToken, forStatement);
+		MEMBER_SET(forStatement, mForToken, forToken);
+
+		auto stmt = CreateStatementAfter(forStatement, CreateStmtFlags_FindTrailingSemicolon);
+		if (stmt == NULL)
+			return forStatement;
+		MEMBER_SET(forStatement, mEmbeddedStatement, stmt);
+
+		return forStatement;
+	}
+
 	auto parenToken = ExpectTokenAfter(forToken, BfToken_LParen);
 	if (parenToken == NULL)
 		return NULL;
 
 	int outNodeIdx = -1;
-	auto nextNode = mVisitorPos.GetNext();
+	nextNode = mVisitorPos.GetNext();
 	if (auto tokenNode = BfNodeDynCast<BfTokenNode>(nextNode))
 	{
 		// Handle 'for (let (key, value) in dict)'
