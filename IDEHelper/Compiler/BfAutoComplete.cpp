@@ -1910,7 +1910,7 @@ void BfAutoComplete::CheckIdentifier(BfAstNode* identifierNode, bool isInExpress
 			"alignof", "append", "as", "asm", "base", "break", "case", "catch", "checked", "continue", "const", "default", "defer",
 			"delegate", "delete", "do", "else", "false", "finally",
 			"fixed", "for", "function", "global", "if", "implicit", "in", "internal", "is", "isconst", "new", "mixin", "not", "null",
-			"offsetof", "out", "params", "readonly", "ref", "rettype", "return",
+			"offsetof", "out", "params", "partial", "readonly", "ref", "rettype", "return",
 			"sealed", "sizeof", "scope", "static", "strideof", "struct", "switch", /*"this",*/ "try", "true", "typeof", "unchecked",
 			"using", "var", "virtual", "volatile", "where", "while",
 			"alloctype", "comptype", "decltype", "nullable",
@@ -1933,7 +1933,7 @@ void BfAutoComplete::CheckIdentifier(BfAstNode* identifierNode, bool isInExpress
 			"abstract", "append", "base", "class", "concrete", "const",
 			"delegate", "extern", "enum", "explicit", "extension", "function", "global",
 			"interface", "in", "implicit", "internal", "mixin", "namespace", "new",
-			"operator", "out", "override", "params", "private", "protected", "public", "readonly", "ref", "rettype", "return",
+			"operator", "out", "override", "params", "partial", "private", "protected", "public", "readonly", "ref", "rettype", "return",
 			"scope", "sealed", "static", "struct", "this", "typealias",
 			"using", "virtual", "volatile", "T", "where"
 		};

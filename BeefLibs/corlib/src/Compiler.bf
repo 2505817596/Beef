@@ -16,7 +16,7 @@ namespace System
 				"case", "catch", "checked", "class", "comptype", "const", "continue", "decltype", "default", "defer", "delegate",
 				"delete", "do", "else", "enum", "explicit", "extension", "extern", "false", "finally", "fixed", "for", "function",
 				"if", "implicit", "in", "interface", "internal", "is", "isconst", "mixin", "namespace", "new", "null", "nullable",
-				"offsetof", "operator", "out", "override", "params", "private", "protected", "public", "readonly", "ref",
+				"offsetof", "operator", "out", "override", "params", "partial", "private", "protected", "public", "readonly", "ref",
 				"rettype", "return", "repeat", "scope", "sealed", "sizeof", "static", "strideof", "struct", "switch", "this", "true", "try",
 				"typealias", "typeof", "unchecked", "using", "var", "virtual", "volatile", "where", "while");
 

@@ -15008,7 +15008,12 @@ BfModuleMethodInstance BfModule::GetMethodInstance(BfTypeInstance* typeInst, BfM
 		BF_ASSERT(!arg->IsVar());
 #endif
 
-	BF_ASSERT(methodDef->mMethodType != BfMethodType_Ignore);
+	if (methodDef->mMethodType == BfMethodType_Ignore)
+	{
+		if (mCompiler->mPassInstance != NULL)
+			mCompiler->mPassInstance->Fail(StrFormat("Internal compiler error: attempted to instantiate ignored method '%s'", methodDef->ToString().c_str()), methodDef->GetRefNode());
+		return BfModuleMethodInstance();
+	}
 
 	// We need to do the 'mNeedsMethodProcessing' check because we want to do a proper initial "awaiting reference" population
 	//  on the methods before we handle an on-demand situation.  This also ensures that our type options are set before doing

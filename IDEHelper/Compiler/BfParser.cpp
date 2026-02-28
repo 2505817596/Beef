@@ -3356,6 +3356,10 @@ void BfParser::NextToken(int endIdx, bool outerIsInterpolate, bool disablePrepro
 						if ((!mCompatMode) && (SrcPtrHasToken("params")))
 							mToken = BfToken_Params;
 						break;
+					case TOKEN_HASH('p', 'a', 'r', 't'):
+						if ((!mCompatMode) && (SrcPtrHasToken("partial")))
+							mToken = BfToken_Partial;
+						break;
 					case TOKEN_HASH('p', 'r', 'i', 'v'):
 						if (SrcPtrHasToken("private"))
 							mToken = BfToken_Private;

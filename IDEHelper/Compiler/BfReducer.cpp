@@ -7313,6 +7313,7 @@ BfAstNode* BfReducer::ReadTypeMember(BfTokenNode* tokenNode, bool declStarted, i
 	case BfToken_Append:
 	case BfToken_Extern:
 	case BfToken_New:
+	case BfToken_Partial:
 	case BfToken_Implicit:
 	case BfToken_Explicit:
 	case BfToken_ReadOnly:
@@ -7442,6 +7443,17 @@ BfAstNode* BfReducer::ReadTypeMember(BfTokenNode* tokenNode, bool declStarted, i
 				Fail("New already specified", methodDecl->mNewSpecifier);
 			}
 			MEMBER_SET(methodDecl, mNewSpecifier, tokenNode);
+			return memberDecl;
+		}
+
+		if (token == BfToken_Partial)
+		{
+			if (methodDecl->mPartialSpecifier != NULL)
+			{
+				AddErrorNode(methodDecl->mPartialSpecifier);
+				Fail("Partial already specified", methodDecl->mPartialSpecifier);
+			}
+			MEMBER_SET(methodDecl, mPartialSpecifier, tokenNode);
 			return memberDecl;
 		}
 
@@ -10050,6 +10062,7 @@ BfAstNode* BfReducer::CreateTopLevelObject(BfTokenNode* tokenNode, BfAttributeDi
 	case BfToken_Protected:
 	case BfToken_Internal:
 	case BfToken_Static:
+	case BfToken_Partial:
 	{
 		auto nextNode = mVisitorPos.GetNext();
 		if ((tokenNode->GetToken() == BfToken_Static) && BfNodeIsA<BfBlock>(nextNode))
@@ -10111,6 +10124,15 @@ BfAstNode* BfReducer::CreateTopLevelObject(BfTokenNode* tokenNode, BfAttributeDi
 				Fail("Static already specified", tokenNode);
 			}
 			MEMBER_SET(typeDeclaration, mStaticSpecifier, tokenNode);
+		}
+
+		if (token == BfToken_Partial)
+		{
+			if (typeDeclaration->mPartialSpecifier != NULL)
+			{
+				Fail("Partial already specified", tokenNode);
+			}
+			MEMBER_SET(typeDeclaration, mPartialSpecifier, tokenNode);
 		}
 
 		if (token == BfToken_Sealed)

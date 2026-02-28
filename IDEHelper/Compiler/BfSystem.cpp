@@ -3219,6 +3219,212 @@ void BfSystem::InjectNewRevision(BfTypeDef* typeDef)
 	VerifyTypeDef(typeDef);
 }
 
+static bool BfTypeRefMatchesForPartialMerge(BfTypeReference* typeRefA, BfTypeReference* typeRefB)
+{
+	if (typeRefA == typeRefB)
+		return true;
+	if ((typeRefA == NULL) || (typeRefB == NULL))
+		return false;
+	return typeRefA->Equals(typeRefB->ToStringView());
+}
+
+static bool BfMethodSignatureMatchesForPartialMerge(BfMethodDef* methodA, BfMethodDef* methodB)
+{
+	if (methodA->mMethodType != methodB->mMethodType)
+		return false;
+	if (methodA->mAppendKind != methodB->mAppendKind)
+		return false;
+	if (methodA->mCheckedKind != methodB->mCheckedKind)
+		return false;
+	if (methodA->mHasComptime != methodB->mHasComptime)
+		return false;
+	if (methodA->mIsMutating != methodB->mIsMutating)
+		return false;
+
+	if (methodA->mMethodType == BfMethodType_Ctor)
+	{
+		if (methodA->mIsStatic != methodB->mIsStatic)
+			return false;
+	}
+	else if (methodA->mMethodType == BfMethodType_Operator)
+	{
+		auto opDeclA = BfNodeDynCast<BfOperatorDeclaration>(methodA->mMethodDeclaration);
+		auto opDeclB = BfNodeDynCast<BfOperatorDeclaration>(methodB->mMethodDeclaration);
+		if ((opDeclA == NULL) != (opDeclB == NULL))
+			return false;
+		if (opDeclA != NULL)
+		{
+			if (opDeclA->mUnaryOp != opDeclB->mUnaryOp)
+				return false;
+			if (opDeclA->mBinOp != opDeclB->mBinOp)
+				return false;
+			if (opDeclA->mAssignOp != opDeclB->mAssignOp)
+				return false;
+			if (opDeclA->mIsConvOperator != opDeclB->mIsConvOperator)
+				return false;
+			if ((opDeclA->mIsConvOperator) && (!BfTypeRefMatchesForPartialMerge(methodA->mReturnTypeRef, methodB->mReturnTypeRef)))
+				return false;
+		}
+	}
+	else if (methodA->mIsLocalMethod)
+	{
+		int sepPosA = (int)BF_MIN(methodA->mName.IndexOf('@'), methodA->mName.length());
+		int sepPosB = (int)BF_MIN(methodB->mName.IndexOf('@'), methodB->mName.length());
+		if (sepPosA != sepPosB)
+			return false;
+		if (strncmp(methodA->mName.c_str(), methodB->mName.c_str(), sepPosA) != 0)
+			return false;
+	}
+	else
+	{
+		if (methodA->mName != methodB->mName)
+			return false;
+	}
+
+	if (!BfTypeRefMatchesForPartialMerge(methodA->mExplicitInterface, methodB->mExplicitInterface))
+		return false;
+
+	int paramIdxA = 0;
+	int paramIdxB = 0;
+	while (true)
+	{
+		while ((paramIdxA < methodA->mParams.mSize) &&
+			((methodA->mParams[paramIdxA]->mParamKind == BfParamKind_AppendIdx) || (methodA->mParams[paramIdxA]->mParamKind == BfParamKind_ImplicitCapture)))
+			paramIdxA++;
+		while ((paramIdxB < methodB->mParams.mSize) &&
+			((methodB->mParams[paramIdxB]->mParamKind == BfParamKind_AppendIdx) || (methodB->mParams[paramIdxB]->mParamKind == BfParamKind_ImplicitCapture)))
+			paramIdxB++;
+
+		bool isDoneA = paramIdxA >= methodA->mParams.mSize;
+		bool isDoneB = paramIdxB >= methodB->mParams.mSize;
+		if ((isDoneA) || (isDoneB))
+		{
+			if (isDoneA != isDoneB)
+				return false;
+			break;
+		}
+
+		auto paramA = methodA->mParams[paramIdxA];
+		auto paramB = methodB->mParams[paramIdxB];
+		if (paramA->mParamKind != paramB->mParamKind)
+			return false;
+		if (paramA->mMethodGenericParamIdx != paramB->mMethodGenericParamIdx)
+			return false;
+		if ((paramA->mMethodGenericParamIdx == -1) && (!BfTypeRefMatchesForPartialMerge(paramA->mTypeRef, paramB->mTypeRef)))
+			return false;
+
+		paramIdxA++;
+		paramIdxB++;
+	}
+
+	if (methodA->mGenericParams.mSize != methodB->mGenericParams.mSize)
+		return false;
+	for (int genericParamIdx = 0; genericParamIdx < methodA->mGenericParams.mSize; genericParamIdx++)
+	{
+		auto genericParamA = methodA->mGenericParams[genericParamIdx];
+		auto genericParamB = methodB->mGenericParams[genericParamIdx];
+		if (genericParamA->mGenericParamFlags != genericParamB->mGenericParamFlags)
+			return false;
+		if (genericParamA->mConstraints.mSize != genericParamB->mConstraints.mSize)
+			return false;
+		for (int constraintIdx = 0; constraintIdx < genericParamA->mConstraints.mSize; constraintIdx++)
+		{
+			if (!genericParamA->mConstraints[constraintIdx]->Equals(genericParamB->mConstraints[constraintIdx]->ToStringView()))
+				return false;
+		}
+	}
+
+	if (methodA->mExternalConstraints.mSize != methodB->mExternalConstraints.mSize)
+		return false;
+	for (int externalConstraintIdx = 0; externalConstraintIdx < methodA->mExternalConstraints.mSize; externalConstraintIdx++)
+	{
+		auto& extA = methodA->mExternalConstraints[externalConstraintIdx];
+		auto& extB = methodB->mExternalConstraints[externalConstraintIdx];
+		if (extA.mGenericParamFlags != extB.mGenericParamFlags)
+			return false;
+		if (extA.mConstraints.mSize != extB.mConstraints.mSize)
+			return false;
+		for (int constraintIdx = 0; constraintIdx < extA.mConstraints.mSize; constraintIdx++)
+		{
+			if (!extA.mConstraints[constraintIdx]->Equals(extB.mConstraints[constraintIdx]->ToStringView()))
+				return false;
+		}
+		if (!BfTypeRefMatchesForPartialMerge(extA.mTypeRef, extB.mTypeRef))
+			return false;
+	}
+
+	return true;
+}
+
+static bool BfIsAutoDefaultCtorForPartialMerge(BfMethodDef* method)
+{
+	return (method->mMethodDeclaration == NULL) && (method->mBody == NULL) && (method->mMethodType == BfMethodType_Ctor) && (method->IsDefaultCtor());
+}
+
+static bool BfIsAutoDynamicCastForPartialMerge(BfMethodDef* method)
+{
+	return (method->mMethodDeclaration == NULL) && (method->mBody == NULL) &&
+		(method->mMethodType == BfMethodType_Normal) &&
+		((method->mName == BF_METHODNAME_DYNAMICCAST) ||
+		 (method->mName == BF_METHODNAME_DYNAMICCAST_INTERFACE) ||
+		 (method->mName == BF_METHODNAME_DYNAMICCAST_SIGNATURE));
+}
+
+static bool BfIsDeclarationLessSynthesizedForPartialMerge(BfMethodDef* method)
+{
+	return (method->mMethodDeclaration == NULL) && (method->mBody == NULL);
+}
+
+static void BfAdoptMethodImplementationForPartialMerge(BfMethodDef* dstMethod, BfMethodDef* srcMethod)
+{
+	dstMethod->mMethodDeclaration = srcMethod->mMethodDeclaration;
+	dstMethod->mBody = srcMethod->mBody;
+	dstMethod->mExplicitInterface = srcMethod->mExplicitInterface;
+	dstMethod->mReturnTypeRef = srcMethod->mReturnTypeRef;
+	dstMethod->mProtection = srcMethod->mProtection;
+	dstMethod->mShow = srcMethod->mShow;
+	dstMethod->mIsReadOnly = srcMethod->mIsReadOnly;
+	dstMethod->mIsVirtual = srcMethod->mIsVirtual;
+	dstMethod->mIsOverride = srcMethod->mIsOverride;
+	dstMethod->mIsAbstract = srcMethod->mIsAbstract;
+	dstMethod->mIsConcrete = srcMethod->mIsConcrete;
+	dstMethod->mIsPartial = srcMethod->mIsPartial;
+	dstMethod->mIsNew = srcMethod->mIsNew;
+	dstMethod->mCodeChanged = srcMethod->mCodeChanged;
+	dstMethod->mWantsBody = srcMethod->mWantsBody;
+	dstMethod->mCLink = srcMethod->mCLink;
+	dstMethod->mAlwaysInline = srcMethod->mAlwaysInline;
+	dstMethod->mIsNoReturn = srcMethod->mIsNoReturn;
+	dstMethod->mIsNoReflect = srcMethod->mIsNoReflect;
+	dstMethod->mIsNoDiscard = srcMethod->mIsNoDiscard;
+	dstMethod->mImportKind = srcMethod->mImportKind;
+	dstMethod->mCallingConvention = srcMethod->mCallingConvention;
+	dstMethod->mFullHash = srcMethod->mFullHash;
+
+	if (dstMethod->mMethodType == BfMethodType_Operator)
+		((BfOperatorDef*)dstMethod)->mOperatorDeclaration = ((BfOperatorDef*)srcMethod)->mOperatorDeclaration;
+}
+
+static bool BfCanChainMethodForPartialMerge(BfMethodDef* method, BfMethodDef* checkMethod)
+{
+	if ((!method->mParams.empty()) || (!checkMethod->mParams.empty()))
+		return false;
+	if (method->mIsStatic != checkMethod->mIsStatic)
+		return false;
+
+	if ((method->mMethodType == BfMethodType_CtorNoBody) || (method->mMethodType == BfMethodType_Dtor))
+		return true;
+
+	if (method->mMethodType == BfMethodType_Normal)
+	{
+		if ((method->mName == BF_METHODNAME_MARKMEMBERS) ||
+			(method->mName == BF_METHODNAME_MARKMEMBERS_STATIC) ||
+			(method->mName == BF_METHODNAME_FIND_TLS_MEMBERS))
+			return true;
+	}
+	return false;
+}
+
 void BfSystem::AddToCompositePartial(BfPassInstance* passInstance, BfTypeDef* compositeTypeDef, BfTypeDef* partialTypeDef)
 {
 	VerifyTypeDef(compositeTypeDef);
@@ -3324,11 +3530,119 @@ void BfSystem::AddToCompositePartial(BfPassInstance* passInstance, BfTypeDef* co
 	}
 	typeDef->mFieldSet.Clear();
 
-	bool hadNoDeclMethod = false;
-	int startMethodIdx = (int)typeDef->mMethods.size();
-	for (auto method : partialTypeDef->mMethods)
+	Array<int> partialMethodRemap;
+	partialMethodRemap.Resize(partialTypeDef->mMethods.size());
+	for (int i = 0; i < partialMethodRemap.mSize; i++)
+		partialMethodRemap[i] = -1;
+	Dictionary<BfMethodDef*, int> partialMethodMap;
+	for (int methodIdx = 0; methodIdx < (int)partialTypeDef->mMethods.size(); methodIdx++)
+		partialMethodMap[partialTypeDef->mMethods[methodIdx]] = methodIdx;
+
+	for (int partialMethodIdx = 0; partialMethodIdx < (int)partialTypeDef->mMethods.size(); partialMethodIdx++)
 	{
-		bool ignoreNewMethod = false;
+		auto method = partialTypeDef->mMethods[partialMethodIdx];
+		bool skipAddingMethod = false;
+		BfMethodDef* duplicateMethod = NULL;
+		BfMethodDef* mappedMethod = NULL;
+		bool isAutoDefaultCtor = BfIsAutoDefaultCtorForPartialMerge(method);
+		bool isAutoDynamicCast = BfIsAutoDynamicCastForPartialMerge(method);
+
+		for (auto checkMethod : typeDef->mMethods)
+		{
+			if (!BfMethodSignatureMatchesForPartialMerge(checkMethod, method))
+				continue;
+
+			bool isSynthMethod = BfIsDeclarationLessSynthesizedForPartialMerge(method);
+			bool checkIsSynthMethod = BfIsDeclarationLessSynthesizedForPartialMerge(checkMethod);
+			bool checkIsAutoDefaultCtor = BfIsAutoDefaultCtorForPartialMerge(checkMethod);
+			bool checkIsAutoDynamicCast = BfIsAutoDynamicCastForPartialMerge(checkMethod);
+			bool isExtensionMethodMatch =
+				((method->mDeclaringType != NULL) && (method->mDeclaringType->IsExtension())) ||
+				((checkMethod->mDeclaringType != NULL) && (checkMethod->mDeclaringType->IsExtension()));
+
+			// Keep one copy of any declaration-less synthesized method emitted per partial piece.
+			if ((isSynthMethod) && (checkIsSynthMethod))
+			{
+				mappedMethod = checkMethod;
+				skipAddingMethod = true;
+				break;
+			}
+
+			// Keep only one copy of synthesized helper methods.
+			if ((isAutoDynamicCast) && (checkIsAutoDynamicCast))
+			{
+				mappedMethod = checkMethod;
+				skipAddingMethod = true;
+				break;
+			}
+
+			// Extension methods keep regular duplicate/new semantics in normal method resolution.
+			if (isExtensionMethodMatch)
+				continue;
+
+			if (BfCanChainMethodForPartialMerge(method, checkMethod))
+				continue;
+
+			// C# behavior: explicit ctor suppresses synthesized default ctor.
+			if (isAutoDefaultCtor)
+			{
+				mappedMethod = checkMethod;
+				skipAddingMethod = true;
+				break;
+			}
+			if (checkIsAutoDefaultCtor)
+			{
+				BfAdoptMethodImplementationForPartialMerge(checkMethod, method);
+				mappedMethod = checkMethod;
+				skipAddingMethod = true;
+				break;
+			}
+
+			bool isValidPartialPair =
+				(method->mIsPartial) &&
+				(checkMethod->mIsPartial) &&
+				(method->IsEmptyPartial() != checkMethod->IsEmptyPartial());
+			if (isValidPartialPair)
+			{
+				// Keep one slot and merge in implementation if this is the body half.
+				if (method->IsEmptyPartial())
+				{
+					mappedMethod = checkMethod;
+					skipAddingMethod = true;
+					break;
+				}
+				BfAdoptMethodImplementationForPartialMerge(checkMethod, method);
+				mappedMethod = checkMethod;
+				skipAddingMethod = true;
+				break;
+			}
+
+			duplicateMethod = checkMethod;
+			mappedMethod = checkMethod;
+			skipAddingMethod = true;
+			break;
+		}
+
+		if ((duplicateMethod != NULL) && (passInstance != NULL))
+		{
+			auto refNode = method->GetRefNode();
+			if (refNode != NULL)
+			{
+				auto checkMethodRefNode = duplicateMethod->GetRefNode();
+				auto bfError = passInstance->Fail(
+					StrFormat("Method '%s' already declared with the same parameter types", method->ToString().c_str()), refNode);
+				if ((bfError != NULL) && (checkMethodRefNode != NULL) && (checkMethodRefNode != refNode))
+					passInstance->MoreInfo("First declaration", checkMethodRefNode);
+			}
+		}
+		if (skipAddingMethod)
+		{
+			if ((mappedMethod != NULL) && (mappedMethod->mIdx >= 0) && (mappedMethod->mIdx < (int)typeDef->mMethods.size()))
+				partialMethodRemap[partialMethodIdx] = mappedMethod->mIdx;
+			else if (passInstance != NULL)
+				passInstance->Fail("Internal compiler error: failed to map merged method while composing partial type", method->GetRefNode());
+			continue;
+		}
 
 		if (typeDef->mTypeCode == BfTypeCode_Interface)
 		{
@@ -3371,9 +3685,8 @@ void BfSystem::AddToCompositePartial(BfPassInstance* passInstance, BfTypeDef* co
 			*newGeneric = *generic;
 			newMethod->mGenericParams[genericIdx] = newGeneric;
 		}
-		if (ignoreNewMethod)
-			newMethod->mMethodType = BfMethodType_Ignore;
 		typeDef->mMethods.push_back(newMethod);
+		partialMethodRemap[partialMethodIdx] = newMethod->mIdx;
 	}
 	typeDef->mMethodSet.Clear();
 
@@ -3382,8 +3695,50 @@ void BfSystem::AddToCompositePartial(BfPassInstance* passInstance, BfTypeDef* co
 		BfPropertyDef* newProp = new BfPropertyDef();
 		*newProp = *prop;
 		BF_ASSERT(newProp->mDeclaringType != NULL);
+		bool hadPropMapFailure = false;
 		for (int methodIdx = 0; methodIdx < (int)newProp->mMethods.size(); methodIdx++)
-			newProp->mMethods[methodIdx] = typeDef->mMethods[startMethodIdx + newProp->mMethods[methodIdx]->mIdx];
+		{
+			auto propMethod = newProp->mMethods[methodIdx];
+			if (propMethod == NULL)
+			{
+				if (passInstance != NULL)
+					passInstance->Fail("Internal compiler error: null property method while composing partial type", newProp->GetRefNode());
+				hadPropMapFailure = true;
+				break;
+			}
+			int partialMethodIdx = -1;
+			if (!partialMethodMap.TryGetValue(propMethod, &partialMethodIdx))
+			{
+				if (passInstance != NULL)
+					passInstance->Fail("Internal compiler error: property method did not belong to current partial method set", newProp->GetRefNode());
+				hadPropMapFailure = true;
+				break;
+			}
+
+			if ((partialMethodIdx < 0) || (partialMethodIdx >= partialMethodRemap.mSize))
+			{
+				if (passInstance != NULL)
+					passInstance->Fail("Internal compiler error: failed to find property method while composing partial type", newProp->GetRefNode());
+				hadPropMapFailure = true;
+				break;
+			}
+
+			int mappedMethodIdx = partialMethodRemap[partialMethodIdx];
+			if ((mappedMethodIdx < 0) || (mappedMethodIdx >= (int)typeDef->mMethods.size()))
+			{
+				if (passInstance != NULL)
+					passInstance->Fail("Internal compiler error: failed to map property method while composing partial type", newProp->GetRefNode());
+				hadPropMapFailure = true;
+				break;
+			}
+
+			newProp->mMethods[methodIdx] = typeDef->mMethods[mappedMethodIdx];
+		}
+		if (hadPropMapFailure)
+		{
+			delete newProp;
+			continue;
+		}
 		typeDef->mProperties.push_back(newProp);
 	}
 	typeDef->mPropertySet.Clear();

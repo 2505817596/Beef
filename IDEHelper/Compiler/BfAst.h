@@ -236,6 +236,7 @@ enum BfToken : uint8
 	BfToken_Operator,
 	BfToken_Out,
 	BfToken_Override,
+	BfToken_Partial,
 	BfToken_Params,
 	BfToken_Private,
 	BfToken_Protected,

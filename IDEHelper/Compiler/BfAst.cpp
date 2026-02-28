@@ -1476,6 +1476,8 @@ const char* Beefy::BfTokenToString(BfToken token)
 		return "out";
 	case BfToken_Override:
 		return "override";
+	case BfToken_Partial:
+		return "partial";
 	case BfToken_Params:
 		return "params";
 	case BfToken_Private:
