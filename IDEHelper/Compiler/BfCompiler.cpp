@@ -9847,7 +9847,11 @@ String BfCompiler::GetEmitLocation(const StringImpl& typeName, int emitLine, int
 
 		auto typeDef = typeInst->mTypeDef;
 		if (partialIdx > 0)
+		{
+			if ((!typeDef->mIsCombinedPartial) || (partialIdx >= typeDef->mPartials.mSize))
+				continue;
 			typeDef = typeDef->mPartials[partialIdx];
+		}
 
 		auto origParser = typeDef->GetDefinition()->GetLastSource()->ToParser();
 		if (origParser == NULL)
@@ -10373,7 +10377,11 @@ BF_EXPORT const char* BF_CALLTYPE BfCompiler_GetCollapseRegions(BfCompiler* bfCo
 
 				auto typeDef = typeInst->mTypeDef;
 				if (partialIdx > 0)
+				{
+					if ((!typeDef->mIsCombinedPartial) || (partialIdx >= typeDef->mPartials.mSize))
+						continue;
 					typeDef = typeDef->mPartials[partialIdx];
+				}
 
 				auto emitParser = typeInst->mTypeDef->GetLastSource()->ToParser();
 
@@ -10448,7 +10456,11 @@ BF_EXPORT const char* BF_CALLTYPE BfCompiler_GetCollapseRegions(BfCompiler* bfCo
 
 					auto typeDef = typeInst->mTypeDef;
 					if (partialIdx > 0)
+					{
+						if ((!typeDef->mIsCombinedPartial) || (partialIdx >= typeDef->mPartials.mSize))
+							continue;
 						typeDef = typeDef->mPartials[partialIdx];
+					}
 
 					auto parser = typeDef->GetDefinition()->GetLastSource()->ToParser();
 					if (parser == NULL)

@@ -3763,6 +3763,13 @@ void BfSystem::FinishCompositePartial(BfTypeDef* compositeTypeDef)
 	VerifyTypeDef(compositeTypeDef);
 
 	auto nextRevision = compositeTypeDef->mNextRevision;
+	if ((nextRevision == NULL) || (nextRevision->mPartials.empty()))
+	{
+		BF_ASSERT(nextRevision != NULL);
+		if (nextRevision != NULL)
+			BF_ASSERT(!nextRevision->mPartials.empty());
+		return;
+	}
 
 	struct _HasMethods
 	{
@@ -4189,16 +4196,28 @@ BfTypeDef* BfSystem::GetCombinedPartial(BfTypeDef* typeDef)
 		return typeDef;
 
 	bool foundPartial = false;
-	BfTypeDef* checkTypeDef = typeDef;
-	auto itr = mTypeDefs.TryGet(checkTypeDef->mFullName);
-	do
+	BfTypeDef* firstCombined = NULL;
+	auto itr = mTypeDefs.TryGet(typeDef->mFullName);
+	while (itr)
 	{
+		auto checkTypeDef = *itr;
 		if (checkTypeDef == typeDef)
 			foundPartial = true;
-		checkTypeDef = *itr;
+		if (checkTypeDef->mIsCombinedPartial)
+		{
+			if (foundPartial)
+				return checkTypeDef;
+			if (firstCombined == NULL)
+				firstCombined = checkTypeDef;
+		}
 		itr.MoveToNextHashMatch();
-	} while ((!checkTypeDef->mIsCombinedPartial) || (!foundPartial));
-	return checkTypeDef;
+	}
+
+	// We may transiently observe a partial before the combined typedef has been inserted.
+	// Fallback to the first combined def if available, otherwise keep using the original partial.
+	if (firstCombined != NULL)
+		return firstCombined;
+	return typeDef;
 }
 
 BfTypeDef* BfSystem::GetOuterTypeNonPartial(BfTypeDef* typeDef)

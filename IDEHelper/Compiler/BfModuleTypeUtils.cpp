@@ -4151,7 +4151,7 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 			for (auto baseTypeRef : typeDef->mBaseTypes)
 			{
 				auto declTypeDef = typeDef;
-				if (typeDef->mIsCombinedPartial)
+				if ((typeDef->mIsCombinedPartial) && (!typeDef->mPartials.empty()))
 					declTypeDef = typeDef->mPartials.front();
 				SetAndRestoreValue<BfTypeDef*> prevTypeDef(mContext->mCurTypeState->mCurTypeDef, declTypeDef);
 				SetAndRestoreValue<BfTypeReference*> prevTypeRef(mContext->mCurTypeState->mCurBaseTypeRef, baseTypeRef);
@@ -4208,7 +4208,7 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 		for (auto baseTypeRef : typeDef->mBaseTypes)
 		{
 			auto declTypeDef = typeDef;
-			if (typeDef->mIsCombinedPartial)
+			if ((typeDef->mIsCombinedPartial) && (!typeDef->mPartials.empty()))
 				declTypeDef = typeDef->mPartials.front();
 			SetAndRestoreValue<BfTypeDef*> prevTypeDef(mContext->mCurTypeState->mCurTypeDef, declTypeDef);
 			SetAndRestoreValue<BfTypeDefineState> prevDefineState(typeInstance->mDefineState, BfTypeDefineState_ResolvingBaseType);
@@ -4414,7 +4414,7 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 				break;
 
 			auto declTypeDef = typeDef;
-			if (typeDef->mIsCombinedPartial)
+			if ((typeDef->mIsCombinedPartial) && (!typeDef->mPartials.empty()))
 				declTypeDef = typeDef->mPartials.front();
 			SetAndRestoreValue<BfTypeDef*> prevTypeDef(mContext->mCurTypeState->mCurTypeDef, declTypeDef);
 			SetAndRestoreValue<BfTypeReference*> prevTypeRef(mContext->mCurTypeState->mCurBaseTypeRef, checkTypeRef);
@@ -10520,7 +10520,8 @@ BfTypeDef* BfModule::GetActiveTypeDef(BfTypeInstance* typeInstanceOverride, bool
 			if ((declTypeDef->IsEmitted()) && (useTypeDef->mIsCombinedPartial))
 			{
 				// Always consider methods to belong to the primary type declaration
-				useTypeDef = useTypeDef->mPartials[0];
+				if (!useTypeDef->mPartials.empty())
+					useTypeDef = useTypeDef->mPartials[0];
 
 			}
 		}
