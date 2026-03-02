@@ -152,7 +152,21 @@ namespace System
 						if (methodData.mFuncPtr == null)
 							continue;
 
-						sMethodInfoCache[(int)methodData.mFuncPtr] = .(typeInstance, methodData);
+						let funcPtrKey = (int)methodData.mFuncPtr;
+						MethodInfo methodInfo = .(typeInstance, methodData);
+
+						MethodInfo existingMethodInfo = default;
+						if (sMethodInfoCache.TryGetValue(funcPtrKey, out existingMethodInfo))
+						{
+							bool existingIsCtorLike = existingMethodInfo.IsConstructor || existingMethodInfo.IsDestructor;
+							bool currentIsCtorLike = methodInfo.IsConstructor || methodInfo.IsDestructor;
+							// Release builds can fold identical function bodies, causing pointer collisions.
+							// Prefer non-ctor methods so delegate lookup doesn't resolve to "this"/"~this".
+							if (!existingIsCtorLike || currentIsCtorLike)
+								continue;
+						}
+
+						sMethodInfoCache[funcPtrKey] = methodInfo;
 					}
 				}
 			}
