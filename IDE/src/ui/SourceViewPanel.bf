@@ -5409,6 +5409,339 @@ namespace IDE.ui
 			delete parser;
 		}
 
+		struct HoverSigTokenRange
+		{
+			public int32 mStart;
+			public int32 mEnd;
+		}
+
+		static bool HoverSig_IsIdentifierStartChar(char8 c)
+		{
+			return (c == '_') || (c.IsLetter);
+		}
+
+		static bool HoverSig_IsIdentifierChar(char8 c)
+		{
+			return (c == '_') || (c.IsLetterOrDigit);
+		}
+
+		static bool HoverSig_IsKeywordToken(StringView token)
+		{
+			switch (token)
+			{
+			case "ref", "out", "in", "params", "mut", "readonly", "const", "public", "private", "protected", "internal",
+				"static", "virtual", "override", "abstract", "sealed", "extern", "operator", "this", "where", "new":
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		static bool HoverSig_IsPrimitiveTypeToken(StringView token)
+		{
+			switch (token)
+			{
+			case "void", "bool", "char8", "char16", "char32", "int8", "int16", "int32", "int64", "int",
+				"uint8", "uint16", "uint32", "uint64", "uint", "float", "double", "String", "var":
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		static bool HoverSig_IsTokenInRanges(int32 tokenStart, int32 tokenEnd, List<HoverSigTokenRange> ranges)
+		{
+			for (let range in ranges)
+			{
+				if ((tokenStart >= range.mStart) && (tokenEnd <= range.mEnd))
+					return true;
+			}
+			return false;
+		}
+
+		static void HoverSig_GetMethodNameRange(StringView titleStr, out int32 methodStart, out int32 methodEnd)
+		{
+			methodStart = -1;
+			methodEnd = -1;
+
+			int32 parenIdx = (.)titleStr.IndexOf('(');
+			if (parenIdx <= 0)
+				return;
+
+			int32 idx = parenIdx - 1;
+			while ((idx >= 0) && (titleStr[idx].IsWhiteSpace))
+				idx--;
+			if (idx < 0)
+				return;
+
+			if (titleStr[idx] == '>')
+			{
+				int32 angleDepth = 1;
+				idx--;
+				while ((idx >= 0) && (angleDepth > 0))
+				{
+					char8 c = titleStr[idx];
+					if (c == '>')
+						angleDepth++;
+					else if (c == '<')
+						angleDepth--;
+					idx--;
+				}
+				while ((idx >= 0) && (titleStr[idx].IsWhiteSpace))
+					idx--;
+			}
+
+			methodEnd = idx + 1;
+			while ((idx >= 0) && HoverSig_IsIdentifierChar(titleStr[idx]))
+				idx--;
+			methodStart = idx + 1;
+
+			if (methodStart >= methodEnd)
+			{
+				methodStart = -1;
+				methodEnd = -1;
+			}
+		}
+
+		static void HoverSig_TryAddParamNameRange(StringView titleStr, int32 identCountInSegment, int32 tokenStart, int32 tokenEnd, List<HoverSigTokenRange> outRanges)
+		{
+			if ((identCountInSegment < 2) || (tokenStart < 0) || (tokenEnd <= tokenStart))
+				return;
+
+			StringView token = .(titleStr, tokenStart, tokenEnd - tokenStart);
+			if (HoverSig_IsKeywordToken(token) || HoverSig_IsPrimitiveTypeToken(token))
+				return;
+
+			HoverSigTokenRange tokenRange = .();
+			tokenRange.mStart = tokenStart;
+			tokenRange.mEnd = tokenEnd;
+			outRanges.Add(tokenRange);
+		}
+
+		static void HoverSig_CollectParamNameRanges(StringView titleStr, List<HoverSigTokenRange> outRanges)
+		{
+			int32 parenStart = (.)titleStr.IndexOf('(');
+			if (parenStart == -1)
+				return;
+
+			int32 lastIdentStart = -1;
+			int32 lastIdentEnd = -1;
+			int32 identCountInSegment = 0;
+			int32 parenDepth = 0;
+			int32 angleDepth = 0;
+
+			for (int32 idx = parenStart + 1; idx < titleStr.Length; idx++)
+			{
+				char8 c = titleStr[idx];
+				if (HoverSig_IsIdentifierStartChar(c))
+				{
+					lastIdentStart = idx;
+					idx++;
+					while ((idx < titleStr.Length) && HoverSig_IsIdentifierChar(titleStr[idx]))
+						idx++;
+					lastIdentEnd = idx;
+					identCountInSegment++;
+					idx--;
+					continue;
+				}
+
+				if (c == '<')
+				{
+					angleDepth++;
+					continue;
+				}
+				if ((c == '>') && (angleDepth > 0))
+				{
+					angleDepth--;
+					continue;
+				}
+				if (c == '(')
+				{
+					parenDepth++;
+					continue;
+				}
+				if (c == ')')
+				{
+					if (parenDepth > 0)
+					{
+						parenDepth--;
+						continue;
+					}
+
+					HoverSig_TryAddParamNameRange(titleStr, identCountInSegment, lastIdentStart, lastIdentEnd, outRanges);
+					break;
+				}
+
+				if ((c == ',') && (parenDepth == 0) && (angleDepth == 0))
+				{
+					HoverSig_TryAddParamNameRange(titleStr, identCountInSegment, lastIdentStart, lastIdentEnd, outRanges);
+					lastIdentStart = -1;
+					lastIdentEnd = -1;
+					identCountInSegment = 0;
+				}
+			}
+		}
+
+		static void HoverSig_AppendToken(String outStr, StringView token, Color color)
+		{
+			if (color == 0)
+			{
+				outStr.Append(token);
+				return;
+			}
+
+			outStr.Append(Font.EncodeColor((uint32)color));
+			outStr.Append(token);
+			outStr.Append(Font.EncodePopColor());
+		}
+
+		void HoverSig_Colorize(StringView titleStr, String outStr)
+		{
+			let colors = gApp.mSettings.mUISettings.mColors;
+
+			HoverSig_GetMethodNameRange(titleStr, var methodStart, var methodEnd);
+			List<HoverSigTokenRange> paramNameRanges = scope .();
+			HoverSig_CollectParamNameRanges(titleStr, paramNameRanges);
+
+			int32 angleDepth = 0;
+			int32 methodOwnerStart = -1;
+			int32 methodOwnerLastStart = -1;
+			int32 methodOwnerLastEnd = -1;
+			if (methodStart != -1)
+			{
+				int32 sepIdx = methodStart - 1;
+				while ((sepIdx >= 0) && (titleStr[sepIdx].IsWhiteSpace))
+					sepIdx--;
+				if ((sepIdx >= 0) && ((titleStr[sepIdx] == '.') || (titleStr[sepIdx] == ':')))
+				{
+					int32 idx = sepIdx - 1;
+					while ((idx >= 0) && (titleStr[idx].IsWhiteSpace))
+						idx--;
+					methodOwnerLastEnd = idx + 1;
+					while ((idx >= 0) && HoverSig_IsIdentifierChar(titleStr[idx]))
+						idx--;
+					methodOwnerLastStart = idx + 1;
+
+					int32 ownerStart = methodOwnerLastStart - 1;
+					while (ownerStart >= 0)
+					{
+						char8 c = titleStr[ownerStart];
+						if (HoverSig_IsIdentifierChar(c) || (c == '.') || (c == ':'))
+							ownerStart--;
+						else
+							break;
+					}
+					methodOwnerStart = ownerStart + 1;
+				}
+			}
+
+			int32 fieldMemberStart = -1;
+			int32 fieldMemberEnd = -1;
+			int32 fieldOwnerStart = -1;
+			int32 fieldOwnerLastStart = -1;
+			int32 fieldOwnerLastEnd = -1;
+			if (methodStart == -1)
+			{
+				int32 sepIdx = (.)titleStr.LastIndexOf('.');
+				if (sepIdx == -1)
+					sepIdx = (.)titleStr.LastIndexOf(':');
+				if (sepIdx != -1)
+				{
+					int32 idx = sepIdx + 1;
+					while ((idx < titleStr.Length) && (titleStr[idx].IsWhiteSpace))
+						idx++;
+					fieldMemberStart = idx;
+					while ((idx < titleStr.Length) && HoverSig_IsIdentifierChar(titleStr[idx]))
+						idx++;
+					fieldMemberEnd = idx;
+
+					idx = sepIdx - 1;
+					while ((idx >= 0) && (titleStr[idx].IsWhiteSpace))
+						idx--;
+					fieldOwnerLastEnd = idx + 1;
+					while ((idx >= 0) && HoverSig_IsIdentifierChar(titleStr[idx]))
+						idx--;
+					fieldOwnerLastStart = idx + 1;
+
+					int32 ownerStart = fieldOwnerLastStart - 1;
+					while (ownerStart >= 0)
+					{
+						char8 c = titleStr[ownerStart];
+						if (HoverSig_IsIdentifierChar(c) || (c == '.') || (c == ':'))
+							ownerStart--;
+						else
+							break;
+					}
+					fieldOwnerStart = ownerStart + 1;
+				}
+			}
+
+			int32 idx = 0;
+			while (idx < titleStr.Length)
+			{
+				int32 tokenStart = idx;
+				if (HoverSig_IsIdentifierStartChar(titleStr[idx]))
+				{
+					idx++;
+					while ((idx < titleStr.Length) && HoverSig_IsIdentifierChar(titleStr[idx]))
+						idx++;
+
+					int32 tokenEnd = idx;
+					StringView token = .(titleStr, tokenStart, tokenEnd - tokenStart);
+					Color tokenColor = 0;
+
+					int32 prevIdx = tokenStart - 1;
+					while ((prevIdx >= 0) && (titleStr[prevIdx].IsWhiteSpace))
+						prevIdx--;
+					int32 nextIdx = tokenEnd;
+					while ((nextIdx < titleStr.Length) && (titleStr[nextIdx].IsWhiteSpace))
+						nextIdx++;
+					bool hasDotPrev = (prevIdx >= 0) && ((titleStr[prevIdx] == '.') || (titleStr[prevIdx] == ':'));
+					bool hasDotNext = (nextIdx < titleStr.Length) && (titleStr[nextIdx] == '.');
+					bool isQualified = hasDotPrev || hasDotNext;
+					bool isFieldLikeMember = (methodStart == -1) && hasDotPrev && (!hasDotNext);
+					bool isMethodOwnerToken = (methodOwnerStart != -1) && (tokenStart >= methodOwnerStart) && (tokenEnd <= methodOwnerLastEnd);
+					bool isMethodOwnerTypeToken = (tokenStart == methodOwnerLastStart) && (tokenEnd == methodOwnerLastEnd);
+					bool isFieldOwnerToken = (fieldOwnerStart != -1) && (tokenStart >= fieldOwnerStart) && (tokenEnd <= fieldOwnerLastEnd);
+					bool isFieldOwnerTypeToken = (tokenStart == fieldOwnerLastStart) && (tokenEnd == fieldOwnerLastEnd);
+					bool isResolvedFieldMemberToken = (fieldMemberStart != -1) && (tokenStart == fieldMemberStart) && (tokenEnd == fieldMemberEnd);
+
+					if ((methodStart != -1) && (tokenStart >= methodStart) && (tokenEnd <= methodEnd))
+						tokenColor = colors.mMethod;
+					else if (isResolvedFieldMemberToken || isFieldLikeMember)
+						tokenColor = colors.mMember;
+					else if (HoverSig_IsTokenInRanges(tokenStart, tokenEnd, paramNameRanges))
+						tokenColor = colors.mParameter;
+					else if (HoverSig_IsKeywordToken(token))
+						tokenColor = colors.mKeyword;
+					else if (HoverSig_IsPrimitiveTypeToken(token))
+						tokenColor = colors.mPrimitiveType;
+					else if (angleDepth > 0)
+						tokenColor = colors.mGenericParam;
+					else if (isMethodOwnerToken)
+						tokenColor = isMethodOwnerTypeToken ? colors.mRefType : colors.mNamespace;
+					else if (isFieldOwnerToken)
+						tokenColor = isFieldOwnerTypeToken ? colors.mRefType : colors.mNamespace;
+					else if (isQualified)
+						tokenColor = hasDotNext ? colors.mNamespace : (token[0].IsUpper ? colors.mRefType : colors.mNamespace);
+					else if (token[0].IsUpper)
+						tokenColor = colors.mRefType;
+
+					HoverSig_AppendToken(outStr, token, tokenColor);
+					continue;
+				}
+
+				char8 c = titleStr[idx];
+				if (c == '<')
+					angleDepth++;
+				else if ((c == '>') && (angleDepth > 0))
+					angleDepth--;
+
+				outStr.Append(c);
+				idx++;
+			}
+		}
+
 		public void UpdateMouseover(bool mouseoverFired, bool mouseInbounds, int line, int lineChar, bool isManual = false)
 		{
 #unwarn
@@ -5651,12 +5984,19 @@ namespace IDE.ui
 
 						if (debugExpr.StartsWith(':'))
 						{
+							String docs = null;
 							int docsPos = debugExpr.IndexOf('\x03');
 							if (docsPos != -1)
-							{
-								String docs = scope String()..Append(debugExpr, docsPos + 1);
-								debugExpr.RemoveToEnd(docsPos);
+								docs = scope String()..Append(debugExpr, docsPos + 1);
 
+							StringView signatureStr = (docsPos != -1) ? .(debugExpr, 1, docsPos - 1) : .(debugExpr, 1);
+							String colorizedSig = scope String();
+							HoverSig_Colorize(signatureStr, colorizedSig);
+							debugExpr.Clear();
+							debugExpr.Append(":", colorizedSig);
+
+							if (docs != null)
+							{
 								DocumentationParser docParser = scope .(docs);
 								var showString = docParser.ShowDocString;
 								if (!String.IsNullOrEmpty(showString))

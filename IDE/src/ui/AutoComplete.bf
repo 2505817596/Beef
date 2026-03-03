@@ -245,6 +245,388 @@ namespace IDE.ui
 
     public class AutoComplete
     {
+		public const uint32 C_POPUP_BG = 0xFF252526;
+		public const uint32 C_POPUP_BORDER = 0xFF454545;
+		public const uint32 C_POPUP_SHADOW = 0x80000000;
+		public const uint32 C_POPUP_ACCENT = 0xFF9E57A0;
+		public const uint32 C_ROW_SELECTED_BG = 0xFF37373D;
+		public const uint32 C_ROW_SELECTED_BORDER = 0xFF3F3F46;
+		public const uint32 C_ENTRY_TEXT = 0xFFD4D4D4;
+		public const uint32 C_ENTRY_MATCH = 0xFF0097FB;
+		public const uint32 C_ENTRY_KIND = 0xFF8E96A6;
+
+		public struct TokenRange
+		{
+			public int32 mStart;
+			public int32 mEnd;
+		}
+
+		public static bool IsIdentifierStartChar(char8 c)
+		{
+			return (c == '_') || (c.IsLetter);
+		}
+
+		public static bool IsIdentifierChar(char8 c)
+		{
+			return (c == '_') || (c.IsLetterOrDigit);
+		}
+
+		public static bool IsKeywordToken(StringView token)
+		{
+			switch (token)
+			{
+			case "ref", "out", "in", "params", "mut", "readonly", "const", "public", "private", "protected", "internal",
+				"static", "virtual", "override", "abstract", "sealed", "extern", "operator", "this", "where", "new":
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		public static bool IsPrimitiveTypeToken(StringView token)
+		{
+			switch (token)
+			{
+			case "void", "bool", "char8", "char16", "char32", "int8", "int16", "int32", "int64", "int",
+				"uint8", "uint16", "uint32", "uint64", "uint", "float", "double", "String", "var":
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		public static bool IsTokenInRanges(int32 tokenStart, int32 tokenEnd, List<TokenRange> ranges)
+		{
+			for (let range in ranges)
+			{
+				if ((tokenStart >= range.mStart) && (tokenEnd <= range.mEnd))
+					return true;
+			}
+			return false;
+		}
+
+		public static void GetMethodNameRange(StringView titleStr, out int32 methodStart, out int32 methodEnd)
+		{
+			methodStart = -1;
+			methodEnd = -1;
+
+			int32 parenIdx = (.)titleStr.IndexOf('(');
+			if (parenIdx <= 0)
+				return;
+
+			int32 idx = parenIdx - 1;
+			while ((idx >= 0) && (titleStr[idx].IsWhiteSpace))
+				idx--;
+			if (idx < 0)
+				return;
+
+			if (titleStr[idx] == '>')
+			{
+				int32 angleDepth = 1;
+				idx--;
+				while ((idx >= 0) && (angleDepth > 0))
+				{
+					char8 c = titleStr[idx];
+					if (c == '>')
+						angleDepth++;
+					else if (c == '<')
+						angleDepth--;
+					idx--;
+				}
+				while ((idx >= 0) && (titleStr[idx].IsWhiteSpace))
+					idx--;
+			}
+
+			methodEnd = idx + 1;
+			while ((idx >= 0) && IsIdentifierChar(titleStr[idx]))
+				idx--;
+			methodStart = idx + 1;
+
+			if (methodStart >= methodEnd)
+			{
+				methodStart = -1;
+				methodEnd = -1;
+			}
+		}
+
+		public static void TryAddParamNameRange(StringView titleStr, int32 identCountInSegment, int32 tokenStart, int32 tokenEnd, List<TokenRange> outRanges)
+		{
+			if ((identCountInSegment < 2) || (tokenStart < 0) || (tokenEnd <= tokenStart))
+				return;
+
+			StringView token = .(titleStr, tokenStart, tokenEnd - tokenStart);
+			if (IsKeywordToken(token) || IsPrimitiveTypeToken(token))
+				return;
+
+			TokenRange tokenRange = .();
+			tokenRange.mStart = tokenStart;
+			tokenRange.mEnd = tokenEnd;
+			outRanges.Add(tokenRange);
+		}
+
+		public static void CollectParamNameRanges(StringView titleStr, List<TokenRange> outRanges)
+		{
+			int32 parenStart = (.)titleStr.IndexOf('(');
+			if (parenStart == -1)
+				return;
+
+			int32 lastIdentStart = -1;
+			int32 lastIdentEnd = -1;
+			int32 identCountInSegment = 0;
+			int32 parenDepth = 0;
+			int32 angleDepth = 0;
+
+			for (int32 idx = parenStart + 1; idx < titleStr.Length; idx++)
+			{
+				char8 c = titleStr[idx];
+				if (IsIdentifierStartChar(c))
+				{
+					lastIdentStart = idx;
+					idx++;
+					while ((idx < titleStr.Length) && IsIdentifierChar(titleStr[idx]))
+						idx++;
+					lastIdentEnd = idx;
+					identCountInSegment++;
+					idx--;
+					continue;
+				}
+
+				if (c == '<')
+				{
+					angleDepth++;
+					continue;
+				}
+				if ((c == '>') && (angleDepth > 0))
+				{
+					angleDepth--;
+					continue;
+				}
+				if (c == '(')
+				{
+					parenDepth++;
+					continue;
+				}
+				if (c == ')')
+				{
+					if (parenDepth > 0)
+					{
+						parenDepth--;
+						continue;
+					}
+
+					TryAddParamNameRange(titleStr, identCountInSegment, lastIdentStart, lastIdentEnd, outRanges);
+					break;
+				}
+
+				if ((c == ',') && (parenDepth == 0) && (angleDepth == 0))
+				{
+					TryAddParamNameRange(titleStr, identCountInSegment, lastIdentStart, lastIdentEnd, outRanges);
+					lastIdentStart = -1;
+					lastIdentEnd = -1;
+					identCountInSegment = 0;
+				}
+			}
+		}
+
+		public static void DrawDocTitle(Graphics g, StringView titleStr, float x, float y, float maxWidth, int32 highlightStart = -1, int32 highlightEnd = -1)
+		{
+			let colors = gApp.mSettings.mUISettings.mColors;
+			uint32 defaultColor = colors.mAutoCompleteDocText;
+
+			if ((g != null) && (highlightStart != -1) && (highlightEnd > highlightStart))
+			{
+				float hX = x + g.mFont.GetWidth(titleStr.Substring(0, highlightStart));
+				float hW = g.mFont.GetWidth(titleStr.Substring(highlightStart, highlightEnd - highlightStart));
+				using (g.PushColor(0x25000000 | (AutoComplete.C_POPUP_ACCENT & 0x00FFFFFF)))
+					g.FillRect(hX, y - GS!(1), hW, g.mFont.GetLineSpacing() + GS!(2));
+			}
+
+			GetMethodNameRange(titleStr, var methodStart, var methodEnd);
+			List<TokenRange> paramNameRanges = scope .();
+			CollectParamNameRanges(titleStr, paramNameRanges);
+
+			float curX = x;
+			int32 angleDepth = 0;
+			int32 methodOwnerStart = -1;
+			int32 methodOwnerLastStart = -1;
+			int32 methodOwnerLastEnd = -1;
+			if (methodStart != -1)
+			{
+				int32 sepIdx = methodStart - 1;
+				while ((sepIdx >= 0) && (titleStr[sepIdx].IsWhiteSpace))
+					sepIdx--;
+				if ((sepIdx >= 0) && ((titleStr[sepIdx] == '.') || (titleStr[sepIdx] == ':')))
+				{
+					int32 idx = sepIdx - 1;
+					while ((idx >= 0) && (titleStr[idx].IsWhiteSpace))
+						idx--;
+					methodOwnerLastEnd = idx + 1;
+					while ((idx >= 0) && IsIdentifierChar(titleStr[idx]))
+						idx--;
+					methodOwnerLastStart = idx + 1;
+
+					int32 ownerStart = methodOwnerLastStart - 1;
+					while (ownerStart >= 0)
+					{
+						char8 c = titleStr[ownerStart];
+						if (IsIdentifierChar(c) || (c == '.') || (c == ':'))
+							ownerStart--;
+						else
+							break;
+					}
+					methodOwnerStart = ownerStart + 1;
+				}
+			}
+
+			int32 fieldMemberStart = -1;
+			int32 fieldMemberEnd = -1;
+			int32 fieldOwnerStart = -1;
+			int32 fieldOwnerLastStart = -1;
+			int32 fieldOwnerLastEnd = -1;
+			if (methodStart == -1)
+			{
+				int32 sepIdx = (.)titleStr.LastIndexOf('.');
+				if (sepIdx == -1)
+					sepIdx = (.)titleStr.LastIndexOf(':');
+				if (sepIdx != -1)
+				{
+					int32 idx = sepIdx + 1;
+					while ((idx < titleStr.Length) && (titleStr[idx].IsWhiteSpace))
+						idx++;
+					fieldMemberStart = idx;
+					while ((idx < titleStr.Length) && IsIdentifierChar(titleStr[idx]))
+						idx++;
+					fieldMemberEnd = idx;
+
+					idx = sepIdx - 1;
+					while ((idx >= 0) && (titleStr[idx].IsWhiteSpace))
+						idx--;
+					fieldOwnerLastEnd = idx + 1;
+					while ((idx >= 0) && IsIdentifierChar(titleStr[idx]))
+						idx--;
+					fieldOwnerLastStart = idx + 1;
+
+					int32 ownerStart = fieldOwnerLastStart - 1;
+					while (ownerStart >= 0)
+					{
+						char8 c = titleStr[ownerStart];
+						if (IsIdentifierChar(c) || (c == '.') || (c == ':'))
+							ownerStart--;
+						else
+							break;
+					}
+					fieldOwnerStart = ownerStart + 1;
+				}
+			}
+
+			int32 idx = 0;
+			while (idx < titleStr.Length)
+			{
+				int32 tokenStart = idx;
+				if (IsIdentifierStartChar(titleStr[idx]))
+				{
+					idx++;
+					while ((idx < titleStr.Length) && IsIdentifierChar(titleStr[idx]))
+						idx++;
+
+					int32 tokenEnd = idx;
+					StringView token = .(titleStr, tokenStart, tokenEnd - tokenStart);
+					uint32 tokenColor = defaultColor;
+
+					int32 prevIdx = tokenStart - 1;
+					while ((prevIdx >= 0) && (titleStr[prevIdx].IsWhiteSpace))
+						prevIdx--;
+					int32 nextIdx = tokenEnd;
+					while ((nextIdx < titleStr.Length) && (titleStr[nextIdx].IsWhiteSpace))
+						nextIdx++;
+					bool hasDotPrev = (prevIdx >= 0) && ((titleStr[prevIdx] == '.') || (titleStr[prevIdx] == ':'));
+					bool hasDotNext = (nextIdx < titleStr.Length) && (titleStr[nextIdx] == '.');
+					bool isQualified = hasDotPrev || hasDotNext;
+					bool isFieldLikeMember = (methodStart == -1) && hasDotPrev && (!hasDotNext);
+					bool isMethodOwnerToken = (methodOwnerStart != -1) && (tokenStart >= methodOwnerStart) && (tokenEnd <= methodOwnerLastEnd);
+					bool isMethodOwnerTypeToken = (tokenStart == methodOwnerLastStart) && (tokenEnd == methodOwnerLastEnd);
+					bool isFieldOwnerToken = (fieldOwnerStart != -1) && (tokenStart >= fieldOwnerStart) && (tokenEnd <= fieldOwnerLastEnd);
+					bool isFieldOwnerTypeToken = (tokenStart == fieldOwnerLastStart) && (tokenEnd == fieldOwnerLastEnd);
+					bool isResolvedFieldMemberToken = (fieldMemberStart != -1) && (tokenStart == fieldMemberStart) && (tokenEnd == fieldMemberEnd);
+
+					if ((methodStart != -1) && (tokenStart >= methodStart) && (tokenEnd <= methodEnd))
+					{
+						tokenColor = colors.mMethod;
+					}
+					else if (isResolvedFieldMemberToken || isFieldLikeMember)
+					{
+						tokenColor = colors.mMember;
+					}
+					else if (IsTokenInRanges(tokenStart, tokenEnd, paramNameRanges))
+					{
+						tokenColor = ((tokenStart >= highlightStart) && (tokenEnd <= highlightEnd)) ? AutoComplete.C_POPUP_ACCENT : colors.mParameter;
+					}
+					else if (IsKeywordToken(token))
+					{
+						tokenColor = colors.mKeyword;
+					}
+					else if (IsPrimitiveTypeToken(token))
+					{
+						tokenColor = colors.mPrimitiveType;
+					}
+					else if (angleDepth > 0)
+					{
+						tokenColor = colors.mGenericParam;
+					}
+					else if (isMethodOwnerToken)
+					{
+						tokenColor = isMethodOwnerTypeToken ? colors.mRefType : colors.mNamespace;
+					}
+					else if (isFieldOwnerToken)
+					{
+						tokenColor = isFieldOwnerTypeToken ? colors.mRefType : colors.mNamespace;
+					}
+					else if (isQualified)
+					{
+						tokenColor = hasDotNext ? colors.mNamespace : colors.mRefType;
+					}
+					else
+					{
+						if (token[0].IsUpper)
+						{
+							tokenColor = colors.mRefType;
+						}
+					}
+
+					float availWidth = maxWidth - (curX - x);
+					if (availWidth <= 0)
+						break;
+
+					using (g.PushColor(tokenColor))
+						g.DrawString(token, curX, y, .Left, availWidth, .Ellipsis);
+
+					curX += g.mFont.GetWidth(token);
+					if (curX - x >= maxWidth)
+						break;
+					continue;
+				}
+
+				char8 c = titleStr[idx];
+				idx++;
+
+				if (c == '<')
+					angleDepth++;
+				else if ((c == '>') && (angleDepth > 0))
+					angleDepth--;
+
+				float availWidth = maxWidth - (curX - x);
+				if (availWidth <= 0)
+					break;
+
+				StringView str = .(titleStr, tokenStart, 1);
+				using (g.PushColor(defaultColor))
+					g.DrawString(str, curX, y, .Left, availWidth, .Ellipsis);
+				curX += g.mFont.GetWidth(str);
+				if (curX - x >= maxWidth)
+					break;
+			}
+		}
+
         public class AutoCompleteContent : ScrollableWidget
         {
             public AutoComplete mAutoComplete;
@@ -375,12 +757,17 @@ namespace IDE.ui
 				
 				if (mOwnsWindow)
 				{
-	                using (g.PushColor(0x80000000))
-	                    g.DrawBox(DarkTheme.sDarkTheme.GetImage(DarkTheme.ImageIdx.DropShadow), GS!(2), GS!(2), boxWidth, drawHeight - GS!(2));
+					float panelWidth = boxWidth - GS!(6);
+					float panelHeight = drawHeight - GS!(8);
 
-	                base.Draw(g);
-	                using (g.PushColor(0xFFFFFFFF))
-	                    g.DrawBox(DarkTheme.sDarkTheme.GetImage(DarkTheme.ImageIdx.Menu), 0, 0, boxWidth - GS!(6), drawHeight - GS!(8));
+					if ((panelWidth > 0) && (panelHeight > 0))
+					{
+						g.DrawBox(DarkTheme.sDarkTheme.GetImage(.DropShadow), GS!(2), GS!(2), panelWidth, panelHeight);
+						using (g.PushColor(AutoComplete.C_POPUP_BG))
+							g.FillRect(0, 0, panelWidth, panelHeight);
+						using (g.PushColor(AutoComplete.C_POPUP_BORDER))
+							g.OutlineRect(0, 0, panelWidth, panelHeight);
+					}
 				}
 
                 g.SetFont(IDEApp.sApp.mCodeFont);
@@ -405,7 +792,7 @@ namespace IDE.ui
 			BumpAllocator mAlloc = new BumpAllocator(.Ignore) ~ delete _;
 			public List<EntryWidget> mFullEntryList = new List<EntryWidget>() ~ delete _;
 			public List<EntryWidget> mEntryList = mFullEntryList;
-			public float mItemSpacing = GS!(18);
+			public float mItemSpacing = GS!(22);
 			public int32 mSelectIdx = -1;
 			public float mMaxWidth;
 			public float mDocWidth;
@@ -448,37 +835,58 @@ namespace IDE.ui
 				{
 				}
 
-                public void Draw(Graphics g)
+                public void Draw(Graphics g, float width)
                 {
-                    if (mIcon != null)
-                        g.Draw(mIcon, 0, 0);
+					var font = IDEApp.sApp.mCodeFont;
+                    g.SetFont(font);
 
-                    g.SetFont(IDEApp.sApp.mCodeFont);
-					
-					float offset = GS!(20);
+					if (mIcon != null)
+                        g.Draw(mIcon, GS!(4), GS!(1));
+
+					if (mScore > 100) // Simulate IntelliCode with stars
+					{
+						using (g.PushColor(AutoComplete.C_POPUP_ACCENT))
+							g.DrawString("★", GS!(22), GS!(1));
+					}
+
+					float rightPadding = GS!(8);
+					float offset = (mScore > 100) ? GS!(40) : GS!(28);
+					float drawLimit = width - rightPadding;
+					float typeWidth = 0;
+					bool hasEntryType = (mEntryType != null) && (!mEntryType.IsEmpty);
+					if (hasEntryType)
+					{
+						typeWidth = font.GetWidth(mEntryType);
+						drawLimit -= typeWidth + GS!(12);
+					}
 
 					int index = 0;
 					for(char32 c in mEntryDisplay.DecodedChars)
-					loop:
 					{
-						if(mMatchIndices?.Contains((uint8)index) == true)
+						let str = StringView(mEntryDisplay, index, @c.NextIndex - index);
+						float strWidth = font.GetWidth(str);
+						if (offset + strWidth > drawLimit)
+							break;
+
+						if (mMatchIndices?.Contains((uint8)index) == true)
 						{
-							g.PushColor(DarkTheme.COLOR_MENU_FOCUSED);
-							defer:loop g.PopColor();
+							using (g.PushColor(AutoComplete.C_ENTRY_MATCH))
+								g.DrawString(str, offset, 0);
 						}
 						else
 						{
-							g.PushColor(DarkTheme.COLOR_TEXT);
-							defer:loop g.PopColor();
+							using (g.PushColor(AutoComplete.C_ENTRY_TEXT))
+								g.DrawString(str, offset, 0);
 						}
 
-						let str = StringView(mEntryDisplay, index, @c.NextIndex - index);
-
-						g.DrawString(str, offset, 0);
-
-						offset += IDEApp.sApp.mCodeFont.GetWidth(str);
-
+						offset += strWidth;
 						index = @c.NextIndex;
+					}
+
+					if ((hasEntryType) && (typeWidth < width - GS!(12)))
+					{
+						using (g.PushColor(0xFF808080)) // More subtle kind text
+							g.DrawString(mEntryType, width - typeWidth - rightPadding, 0);
 					}
                 } 
 
@@ -516,21 +924,23 @@ namespace IDE.ui
 					float scrollPos = -g.mMatrix.ty + absY;
 					int32 startIdx = (int32)(scrollPos / mAutoCompleteListWidget.mItemSpacing);
 					int32 endIdx = Math.Min((int32)((scrollPos + mAutoCompleteListWidget.mHeight)/ mAutoCompleteListWidget.mItemSpacing) + 1, (int32)mAutoCompleteListWidget.mEntryList.Count);
+					float rowWidth = mWidth - GS!(4) - mAutoCompleteListWidget.mRightBoxAdjust;
+					if (mAutoCompleteListWidget.mVertScrollbar != null)
+						rowWidth -= GS!(18);
+					rowWidth = Math.Max(rowWidth, GS!(40));
 
 					if (mAutoCompleteListWidget.mSelectIdx != -1)
 					{
 						var selectedEntry = mAutoCompleteListWidget.mEntryList[mAutoCompleteListWidget.mSelectIdx];
-						using (g.PushColor(DarkTheme.COLOR_MENU_FOCUSED))
-						{
-							let dispWidth = g.mFont.GetWidth(selectedEntry.mEntryDisplay) + GS!(24);
-
-						    float width = mWidth - GS!(16) - mAutoCompleteListWidget.mRightBoxAdjust;
-						    if (mAutoCompleteListWidget.mVertScrollbar != null)
-						        width -= GS!(18);
-							width = Math.Max(dispWidth, width);
-
-						    g.DrawButton(DarkTheme.sDarkTheme.GetImage(DarkTheme.ImageIdx.MenuSelect), GS!(4), selectedEntry.Y - GS!(2), width);
-						}
+						float selX = GS!(1);
+						float selY = selectedEntry.Y - GS!(1);
+						float selHeight = mAutoCompleteListWidget.mItemSpacing;
+						using (g.PushColor(AutoComplete.C_ROW_SELECTED_BG))
+							g.FillRect(selX, selY, rowWidth, selHeight);
+						/*using (g.PushColor(AutoComplete.C_ROW_SELECTED_BORDER))
+							g.OutlineRect(selX, selY, rowWidth, selHeight);*/
+						using (g.PushColor(AutoComplete.C_POPUP_ACCENT))
+							g.FillRect(selX, selY, GS!(3), selHeight);
 					}
 
                     for (int32 itemIdx = startIdx; itemIdx < endIdx; itemIdx++)
@@ -538,8 +948,8 @@ namespace IDE.ui
                         var entry = (EntryWidget)mAutoCompleteListWidget.mEntryList[itemIdx];
 
 						float curY = entry.Y;
-                        using (g.PushTranslate(4, curY))
-							entry.Draw(g);
+                        using (g.PushTranslate(GS!(8), curY))
+							entry.Draw(g, rowWidth - GS!(12));
                     }
                 }
 
@@ -587,7 +997,9 @@ namespace IDE.ui
 				for (int i = firstEntry; i < lastEntry; i++)
 				{
 					var entry = mEntryList[i];
-					float entryWidth = font.GetWidth(entry.mEntryDisplay) + GS!(32);
+					float entryWidth = font.GetWidth(entry.mEntryDisplay) + GS!(40);
+					if ((entry.mEntryType != null) && (!entry.mEntryType.IsEmpty))
+						entryWidth += font.GetWidth(entry.mEntryType) + GS!(24);
 					mMaxWidth = Math.Max(mMaxWidth, entryWidth);
 				}
 
@@ -814,15 +1226,42 @@ namespace IDE.ui
 								float drawY = GS!(4);
 								//float drawHeight = GS!(32);
 								float drawHeight = mDocHeight;
+								float drawWidth = mRightBoxAdjust - GS!(8);
 
-							    using (g.PushColor(0x80000000))
-							        g.DrawBox(DarkTheme.sDarkTheme.GetImage(.DropShadow), drawX + GS!(2), drawY + GS!(2), mRightBoxAdjust - GS!(2), drawHeight - GS!(2));
+								if ((drawWidth > 0) && (drawHeight > 0))
+								{
+									g.DrawBox(DarkTheme.sDarkTheme.GetImage(.DropShadow), drawX + GS!(2), drawY + GS!(2), drawWidth, drawHeight);
+									using (g.PushColor(AutoComplete.C_POPUP_BG))
+										g.FillRect(drawX, drawY, drawWidth, drawHeight);
+									using (g.PushColor(AutoComplete.C_POPUP_BORDER))
+										g.OutlineRect(drawX, drawY, drawWidth, drawHeight);
 
-							    using (g.PushColor(0xFFFFFFFF))
-							        g.DrawBox(DarkTheme.sDarkTheme.GetImage(.Menu), drawX, drawY, mRightBoxAdjust - GS!(8), drawHeight - GS!(8));
+									float textX = drawX + GS!(8);
+									float textY = drawY + GS!(6);
+									float textWidth = drawWidth - GS!(16);
 
-								using (g.PushColor(gApp.mSettings.mUISettings.mColors.mAutoCompleteDocText))
-									g.DrawString(docParser.ShowDocString, drawX + GS!(8), drawY + GS!(4), .Left, mDocWidth - GS!(20), .Wrap);
+									StringView showDocString = .(docParser.ShowDocString);
+									StringView titleStr = showDocString;
+									StringView bodyStr = default;
+									int splitIdx = showDocString.IndexOf('\n');
+									if (splitIdx != -1)
+									{
+										titleStr = .(showDocString, 0, splitIdx);
+										bodyStr = .(showDocString, splitIdx + 1);
+									}
+
+									if (!titleStr.IsEmpty)
+									{
+										AutoComplete.DrawDocTitle(g, titleStr, textX, textY, textWidth);
+										textY += g.mFont.GetLineSpacing() + GS!(3);
+									}
+
+									if (!bodyStr.IsEmpty)
+									{
+										using (g.PushColor(gApp.mSettings.mUISettings.mColors.mAutoCompleteDocText))
+											g.DrawString(bodyStr, textX, textY, .Left, textWidth, .Wrap);
+									}
+								}
 							}
 						}
 						else
@@ -988,8 +1427,8 @@ namespace IDE.ui
 				float extHeight;
 				DrawInfo(null, out extWidth, out extHeight);
 
-				mWidth = extWidth;
-				mHeight = extHeight;
+				mWidth = extWidth + GS!(16);
+				mHeight = extHeight + GS!(12);
 
 				if ((mWidth <= 0) || (mHeight <= 0))
 					return;
@@ -999,7 +1438,7 @@ namespace IDE.ui
 					if (mOwnsWindow)
 					{
 						mAutoComplete.mIgnoreMove++;
-						mAutoComplete.UpdateWindow(ref mWidgetWindow, this, mAutoComplete.mInvokeSrcPositions[0], (int32)extWidth, (int32)extHeight);
+						mAutoComplete.UpdateWindow(ref mWidgetWindow, this, mAutoComplete.mInvokeSrcPositions[0], (int32)mWidth, (int32)mHeight);
 						mAutoComplete.mIgnoreMove--;
 					}
 					else
@@ -1138,7 +1577,7 @@ namespace IDE.ui
 					return;
 
 				float curX = GS!(8);
-				float curY = GS!(5);
+				float curY = GS!(6);
 
 				if (mEntryList.Count > 1)
 				{
@@ -1146,7 +1585,7 @@ namespace IDE.ui
 					numStr.AppendF("{0}/{1}", mSelectIdx + 1, mEntryList.Count);
 					if (g != null)
 					{
-					    using (g.PushColor(gApp.mSettings.mUISettings.mColors.mAutoCompleteSubText))
+					    using (g.PushColor(AutoComplete.C_ENTRY_KIND))
 					        g.DrawString(numStr, curX, curY);
 					}
 					curX += font.GetWidth(numStr) + GS!(8);
@@ -1161,54 +1600,27 @@ namespace IDE.ui
 
 				GetState(var cursorSection);
 
-				float paramX = 0;
+				String fullSignature = scope String();
+				int32 highlightStart = -1;
+				int32 highlightEnd = -1;
 				for (int sectionIdx = 0; sectionIdx < textSections.Count; sectionIdx++)
 				{
-				    bool isParam = (sectionIdx > 0) && (sectionIdx < textSections.Count - 1);
-					if ((isParam) && (paramX == 0))
-						paramX = curX;
-
-					StringView sectionStr = .(textSections[sectionIdx]);
-
-					float sectionWidth = font.GetWidth(sectionStr);
-					if (curX + sectionWidth > maxWidth)
-					{
-						curX = paramX;
-						curY += font.GetLineSpacing();
-						while (sectionStr.StartsWith(" "))
-							sectionStr.RemoveFromStart(1);
-					}
 					if (sectionIdx == cursorSection)
-					{
-						paramName = sectionStr;
-						int eqPos = paramName.IndexOf('=');
-						if (eqPos != -1)
-						{
-							paramName.RemoveToEnd(eqPos);
-							paramName.Trim();
-						}
-						
-						int lastSpace = paramName.LastIndexOf(' ');
-						if (lastSpace != -1)
-						{
-							paramName = .(paramName, lastSpace + 1);
-							if (paramName.EndsWith(','))
-								paramName.RemoveFromEnd(1);
-						}
-					}
-
-					if (g != null)
-					{
-						using (g.PushColor(((sectionIdx == cursorSection) && (isParam)) ? gApp.mSettings.mUISettings.mColors.mAutoCompleteActiveText : gApp.mSettings.mUISettings.mColors.mText))
-							g.DrawString(sectionStr, curX, curY);
-					}
-			        curX += sectionWidth;
-
-					extWidth = Math.Max(extWidth, curX);
+						highlightStart = (.)fullSignature.Length;
+					fullSignature.Append(textSections[sectionIdx]);
+					if (sectionIdx == cursorSection)
+						highlightEnd = (.)fullSignature.Length;
 				}
 
+				if (g != null)
+				{
+					AutoComplete.DrawDocTitle(g, fullSignature, curX, curY, maxWidth - curX, highlightStart, highlightEnd);
+				}
+				extWidth = Math.Max(extWidth, curX + font.GetWidth(fullSignature));
+				curX += font.GetWidth(fullSignature);
+
 				extWidth += GS!(16);
-				extHeight = curY + font.GetLineSpacing() + GS!(16);
+				extHeight = curY + font.GetLineSpacing() + GS!(12);
 
 				if ((selectedEntry.mDocumentation != null) && (gApp.mSettings.mEditorSettings.mAutoCompleteShowDocumentation))
 				{
