@@ -3,6 +3,7 @@ using System.Collections;
 using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.IO;
 using Beefy;
 using Beefy.gfx;
 using Beefy.events;
@@ -252,8 +253,126 @@ namespace IDE.ui
 		public const uint32 C_ROW_SELECTED_BG = 0xFF37373D;
 		public const uint32 C_ROW_SELECTED_BORDER = 0xFF3F3F46;
 		public const uint32 C_ENTRY_TEXT = 0xFFD4D4D4;
-		public const uint32 C_ENTRY_MATCH = 0xFF0097FB;
+		public const uint32 C_ENTRY_MATCH = 0xFF1FA8FF;
 		public const uint32 C_ENTRY_KIND = 0xFF8E96A6;
+		public const uint32 C_ICON_METHOD = 0xFFC586C0;
+		public const uint32 C_ICON_FIELD = 0xFF75BEFF;
+		public const uint32 C_ICON_TYPE = 0xFFEE9D28;
+		public const uint32 C_ICON_NAMESPACE = 0xFF4EC9B0;
+		public const uint32 C_ICON_ENUM = 0xFFDCDCAA;
+
+		static Font sCodiconFont;
+		static bool sTriedLoadCodiconFont;
+		public static bool sTraceEnabled = false;
+
+		public static void Trace(StringView msg)
+		{
+			if (!sTraceEnabled)
+				return;
+
+			String logPath = scope .();
+			logPath.Append(BFApp.sApp.mInstallDir, "autocomplete_trace.log");
+			String line = scope .();
+			line.Append(msg);
+			line.Append('\n');
+			File.WriteAllText(logPath, line, true);
+		}
+
+		public static Font GetCodiconFont()
+		{
+			if (sTriedLoadCodiconFont)
+				return sCodiconFont;
+			sTriedLoadCodiconFont = true;
+
+			String codiconPath = scope .();
+			codiconPath.Append(BFApp.sApp.mInstallDir, "fonts/codicon.ttf");
+			if (!File.Exists(codiconPath))
+				return null;
+
+			Font codiconFont = new Font();
+			if (!codiconFont.Load(codiconPath, 15.0f * DarkTheme.sScale))
+			{
+				delete codiconFont;
+				return null;
+			}
+
+			sCodiconFont = codiconFont;
+			return sCodiconFont;
+		}
+
+		public static bool TryGetCodiconForEntryType(StringView entryType, out char32 iconGlyph, out uint32 iconColor)
+		{
+			iconGlyph = '\0';
+			iconColor = C_ENTRY_KIND;
+			if (entryType.IsEmpty)
+				return false;
+
+			switch (entryType)
+			{
+			case "method":
+				iconGlyph = (char32)0xEA8C; // symbol-method
+				iconColor = C_ICON_METHOD;
+				return true;
+			case "extmethod":
+				iconGlyph = (char32)0xEC41; // symbol-method-arrow
+				iconColor = C_ICON_METHOD;
+				return true;
+			case "field":
+				iconGlyph = (char32)0xEB5F; // symbol-field
+				iconColor = C_ICON_FIELD;
+				return true;
+			case "property":
+				iconGlyph = (char32)0xEB65; // symbol-property
+				iconColor = C_ICON_FIELD;
+				return true;
+			case "namespace":
+				iconGlyph = (char32)0xEA8B; // symbol-namespace
+				iconColor = C_ICON_NAMESPACE;
+				return true;
+			case "class":
+				iconGlyph = (char32)0xEB5B; // symbol-class
+				iconColor = C_ICON_TYPE;
+				return true;
+			case "interface":
+				iconGlyph = (char32)0xEB61; // symbol-interface
+				iconColor = C_ICON_TYPE;
+				return true;
+			case "valuetype":
+				iconGlyph = (char32)0xEA91; // symbol-struct
+				iconColor = C_ICON_TYPE;
+				return true;
+			case "payloadEnum":
+				iconGlyph = (char32)0xEA95; // symbol-enum
+				iconColor = C_ICON_ENUM;
+				return true;
+			case "constant":
+				iconGlyph = (char32)0xEB5D; // symbol-constant
+				iconColor = C_ICON_ENUM;
+				return true;
+			case "parameter":
+				iconGlyph = (char32)0xEA92; // symbol-parameter
+				iconColor = C_ICON_FIELD;
+				return true;
+			case "variable", "value":
+				iconGlyph = (char32)0xEA88; // symbol-variable
+				iconColor = C_ICON_FIELD;
+				return true;
+			case "object", "generic":
+				iconGlyph = (char32)0xEA8B; // symbol-object
+				iconColor = C_ICON_TYPE;
+				return true;
+			case "folder":
+				iconGlyph = (char32)0xEA83; // symbol-folder
+				iconColor = C_ICON_NAMESPACE;
+				return true;
+			case "file":
+				iconGlyph = (char32)0xEB60; // symbol-file
+				iconColor = C_ENTRY_KIND;
+				return true;
+			default:
+			}
+			return false;
+		}
 
 		public struct TokenRange
 		{
@@ -263,12 +382,30 @@ namespace IDE.ui
 
 		public static bool IsIdentifierStartChar(char8 c)
 		{
-			return (c == '_') || (c.IsLetter);
+			return (c == '_') || (c.IsLetter) || ((uint8)c >= 0x80);
+		}
+
+		public static bool IsIdentifierStartChar(char32 c)
+		{
+			if (c == '_')
+				return true;
+			if (c <= (char32)0x7F)
+				return IsIdentifierStartChar((char8)c);
+			return c.IsLetter;
 		}
 
 		public static bool IsIdentifierChar(char8 c)
 		{
-			return (c == '_') || (c.IsLetterOrDigit);
+			return (c == '_') || (c.IsLetterOrDigit) || ((uint8)c >= 0x80);
+		}
+
+		public static bool IsIdentifierChar(char32 c)
+		{
+			if (c == '_')
+				return true;
+			if (c <= (char32)0x7F)
+				return IsIdentifierChar((char8)c);
+			return c.IsLetterOrDigit;
 		}
 
 		public static bool IsKeywordToken(StringView token)
@@ -548,6 +685,20 @@ namespace IDE.ui
 					bool isFieldOwnerToken = (fieldOwnerStart != -1) && (tokenStart >= fieldOwnerStart) && (tokenEnd <= fieldOwnerLastEnd);
 					bool isFieldOwnerTypeToken = (tokenStart == fieldOwnerLastStart) && (tokenEnd == fieldOwnerLastEnd);
 					bool isResolvedFieldMemberToken = (fieldMemberStart != -1) && (tokenStart == fieldMemberStart) && (tokenEnd == fieldMemberEnd);
+					bool isImmediateTypeOwnerForMethod = false;
+					if ((methodStart != -1) && hasDotNext)
+					{
+						int32 probeIdx = nextIdx + 1;
+						while ((probeIdx < titleStr.Length) && (titleStr[probeIdx].IsWhiteSpace))
+							probeIdx++;
+						int32 nextIdentStart = probeIdx;
+						while ((probeIdx < titleStr.Length) && IsIdentifierChar(titleStr[probeIdx]))
+							probeIdx++;
+						int32 nextIdentEnd = probeIdx;
+						while ((probeIdx < titleStr.Length) && (titleStr[probeIdx].IsWhiteSpace))
+							probeIdx++;
+						isImmediateTypeOwnerForMethod = (nextIdentStart == methodStart) && (nextIdentEnd <= methodEnd) && (probeIdx < titleStr.Length) && (titleStr[probeIdx] == '(');
+					}
 
 					if ((methodStart != -1) && (tokenStart >= methodStart) && (tokenEnd <= methodEnd))
 					{
@@ -573,9 +724,9 @@ namespace IDE.ui
 					{
 						tokenColor = colors.mGenericParam;
 					}
-					else if (isMethodOwnerToken)
+					else if (isMethodOwnerToken || isImmediateTypeOwnerForMethod)
 					{
-						tokenColor = isMethodOwnerTypeToken ? colors.mRefType : colors.mNamespace;
+						tokenColor = (isMethodOwnerTypeToken || isImmediateTypeOwnerForMethod) ? colors.mRefType : colors.mNamespace;
 					}
 					else if (isFieldOwnerToken)
 					{
@@ -822,6 +973,9 @@ namespace IDE.ui
                 public Image mIcon;
 				public List<uint8> mMatchIndices;
 				public int32 mScore;
+				public int32 mMatchTier;
+				public int32 mTypePriority;
+				public int32 mMRUPriority;
 
 				public float Y
 				{
@@ -840,8 +994,26 @@ namespace IDE.ui
 					var font = IDEApp.sApp.mCodeFont;
                     g.SetFont(font);
 
-					if (mIcon != null)
-                        g.Draw(mIcon, GS!(4), GS!(1));
+					bool hasCodicon = false;
+					char32 codiconGlyph;
+					uint32 codiconColor;
+					if (AutoComplete.TryGetCodiconForEntryType(mEntryType, out codiconGlyph, out codiconColor))
+					{
+						let codiconFont = AutoComplete.GetCodiconFont();
+						if (codiconFont != null)
+						{
+							hasCodicon = true;
+							String codiconText = scope .();
+							codiconText.Append(codiconGlyph);
+							g.SetFont(codiconFont);
+							using (g.PushColor(codiconColor))
+								g.DrawString(codiconText, GS!(4), GS!(1));
+							g.SetFont(font);
+						}
+					}
+
+					if ((!hasCodicon) && (mIcon != null))
+						g.Draw(mIcon, GS!(4), GS!(1));
 
 					if (mScore > 100) // Simulate IntelliCode with stars
 					{
@@ -989,14 +1161,25 @@ namespace IDE.ui
 					lastEntry = mSelectIdx + 7;
 				}
 
-				lastEntry = Math.Min(lastEntry, mEntryList.Count);
+				firstEntry = Math.Max(firstEntry, 0);
+				lastEntry = Math.Max(lastEntry, 0);
+				int entryCount = mEntryList.Count;
+				if (entryCount <= 0)
+					return;
+				if (firstEntry >= entryCount)
+					return;
+				lastEntry = Math.Min(lastEntry, entryCount);
 
 				float prevMaxWidth = mMaxWidth;
 				var font = IDEApp.sApp.mCodeFont;
 
 				for (int i = firstEntry; i < lastEntry; i++)
 				{
+					if ((i < 0) || (i >= mEntryList.Count))
+						break;
 					var entry = mEntryList[i];
+					if (entry == null)
+						continue;
 					float entryWidth = font.GetWidth(entry.mEntryDisplay) + GS!(40);
 					if ((entry.mEntryType != null) && (!entry.mEntryType.IsEmpty))
 						entryWidth += font.GetWidth(entry.mEntryType) + GS!(24);
@@ -1800,6 +1983,7 @@ namespace IDE.ui
         public static Dictionary<String, int32> sAutoCompleteMRU = new Dictionary<String, int32>() {
 			(new String("return"), (int32)1)
 			} ~ delete _;
+		public static Dictionary<char32, char8> sPinyinInitialCache = new .() ~ delete _;
         public bool mIsAsync = true;
         public bool mIsMember;        
 		public bool mIsFixit;
@@ -2101,10 +2285,43 @@ namespace IDE.ui
 			}
 		}
 
-        public void GetAsyncTextPos()
-        {
+		void GetIdentifierFilterAtCursor(String outFilter)
+		{
+			var data = mTargetEditWidget.Content.mData;
+			int32 cursorPos = (int32)mTargetEditWidget.Content.CursorTextPos;
+			cursorPos = Math.Min(cursorPos, data.mTextLength);
+			int32 startPos = cursorPos;
+			while (startPos > 0)
+			{
+				char32 c = data.mText[startPos - 1].mChar;
+				if (!AutoComplete.IsIdentifierChar(c))
+					break;
+				startPos--;
+			}
+
+			if (cursorPos > startPos)
+				mTargetEditWidget.Content.ExtractString(startPos, cursorPos - startPos, outFilter);
+		}
+
+		public void GetAsyncTextPos()
+		{
 			if (mInsertStartIdx == null)
-				return;
+			{
+				var data = mTargetEditWidget.Content.mData;
+				int32 cursorPos = (int32)mTargetEditWidget.Content.CursorTextPos;
+				cursorPos = Math.Min(cursorPos, data.mTextLength);
+				int32 startPos = cursorPos;
+				while (startPos > 0)
+				{
+					char32 c = data.mText[startPos - 1].mChar;
+					if (!AutoComplete.IsIdentifierChar(c))
+						break;
+					startPos--;
+				}
+
+				// Fallback for backends that don't provide insertRange on incremental updates.
+				mInsertStartIdx = new .(this, startPos);
+			}
 
             mInsertEndIdx = (int32)mTargetEditWidget.Content.CursorTextPos;
 			while ((mInsertStartIdx != null) && (mInsertStartIdx.Value < mInsertEndIdx))
@@ -2337,6 +2554,317 @@ namespace IDE.ui
 		[CallingConvention(.Stdcall), CLink]
 		static extern bool fts_fuzzy_match(char8* pattern, char8* str, ref int32 outScore, uint8* matches, int maxMatches);
 
+#if BF_PLATFORM_WINDOWS
+		[CallingConvention(.Stdcall), CLink]
+		static extern char8 IDEHelper_GetPinyinInitial(char32 c32);
+#endif
+
+		const int32 MATCH_TIER_EXACT_CASE = 0;
+		const int32 MATCH_TIER_EXACT_NOCASE = 1;
+		const int32 MATCH_TIER_PREFIX_CASE = 2;
+		const int32 MATCH_TIER_PREFIX_NOCASE = 3;
+		const int32 MATCH_TIER_WORD_PREFIX_CASE = 4;
+		const int32 MATCH_TIER_WORD_PREFIX_NOCASE = 5;
+		const int32 MATCH_TIER_SUBSTRING_CASE = 6;
+		const int32 MATCH_TIER_SUBSTRING_NOCASE = 7;
+		const int32 MATCH_TIER_INITIALS_CASE = 8;
+		const int32 MATCH_TIER_INITIALS_NOCASE = 9;
+		const int32 MATCH_TIER_FUZZY = 10;
+		const int32 MATCH_TIER_OTHER = 11;
+
+		bool TryGetPinyinInitial(char32 c32, out char8 initial)
+		{
+			initial = 0;
+
+#if BF_PLATFORM_WINDOWS
+			if (sPinyinInitialCache.TryGetValue(c32, out initial))
+				return initial != 0;
+
+			if ((c32 < (char32)0x3400) || (c32 > (char32)0x9FFF) || (c32 > (char32)0xFFFF))
+			{
+				sPinyinInitialCache[c32] = 0;
+				return false;
+			}
+
+			initial = IDEHelper_GetPinyinInitial(c32);
+			if ((initial >= 'A') && (initial <= 'Z'))
+				initial = (char8)(initial - 'A' + 'a');
+			sPinyinInitialCache[c32] = initial;
+			return initial != 0;
+#else
+			return false;
+#endif
+		}
+
+		int BuildInitialsAndPositions(String entry, char8* initials, uint8* initialPos, int maxCount, out bool hasPinyinInitial)
+		{
+			hasPinyinInitial = false;
+			int initialCount = 0;
+			bool prevWasUnderscore = false;
+			int entryIdx = 0;
+			for (char32 entryC in entry.DecodedChars)
+			{
+				int nextEntryIdx = @entryC.NextIndex;
+				if (entryC == '_')
+				{
+					prevWasUnderscore = true;
+					entryIdx = nextEntryIdx;
+					continue;
+				}
+
+				bool appendInitial = false;
+				char8 initialC = 0;
+				if ((entryIdx == 0) || (prevWasUnderscore) || (entryC.IsUpper) || ((entryC >= '0') && (entryC <= '9')))
+				{
+					if (entryC <= (char32)0x7F)
+					{
+						char8 entryC8 = (char8)entryC;
+						if (entryC8.IsLetterOrDigit)
+						{
+							initialC = entryC8;
+							appendInitial = true;
+						}
+					}
+				}
+
+				if (!appendInitial && TryGetPinyinInitial(entryC, out initialC))
+				{
+					appendInitial = true;
+					hasPinyinInitial = true;
+				}
+
+				if (appendInitial && (initialCount < maxCount) && (entryIdx <= uint8.MaxValue))
+				{
+					initials[initialCount] = initialC;
+					initialPos[initialCount] = (uint8)entryIdx;
+					initialCount++;
+				}
+
+				prevWasUnderscore = false;
+				entryIdx = nextEntryIdx;
+			}
+
+			return initialCount;
+		}
+
+		bool IsWordBoundaryPrefixMatch(String entry, String filter, bool ignoreCase)
+		{
+			int filterLen = filter.Length;
+			int entryLen = entry.Length;
+			if ((filterLen == 0) || (filterLen > entryLen))
+				return false;
+
+			char8* entryPtr = entry.Ptr;
+			char8* filterPtr = filter.Ptr;
+			bool prevWasUnderscore = false;
+			for (int entryIdx = 0; entryIdx < entryLen; entryIdx++)
+			{
+				char8 entryC = entryPtr[entryIdx];
+
+				if (entryC == '_')
+				{
+					prevWasUnderscore = true;
+					continue;
+				}
+
+				if ((entryIdx == 0) || (prevWasUnderscore) || (entryC.IsUpper) || (entryC.IsDigit))
+				{
+					if ((entryLen - entryIdx >= filterLen) && (String.Compare(entryPtr + entryIdx, filterLen, filterPtr, filterLen, ignoreCase) == 0))
+						return true;
+				}
+
+				prevWasUnderscore = false;
+			}
+
+			return false;
+		}
+
+		bool IsInitialsMatch(String entry, String filter, bool ignoreCase)
+		{
+			int filterLen = filter.Length;
+			int entryLen = entry.Length;
+			if ((filterLen <= 0) || (filterLen > entryLen))
+				return false;
+
+			char8* filterPtr = filter.Ptr;
+			char8[256] initialStr = ?;
+			uint8[256] initialPos;
+			char8* initialStrPtr = &initialStr;
+			bool hasPinyinInitial = false;
+			int initialLen = BuildInitialsAndPositions(entry, &initialStr, &initialPos, initialStr.Count, out hasPinyinInitial);
+			if ((filterLen == 1) && (!hasPinyinInitial))
+				return false;
+			if (hasPinyinInitial)
+			{
+				for (int startIdx = 0; startIdx <= initialLen - filterLen; startIdx++)
+				{
+					if (String.Compare(initialStrPtr + startIdx, filterLen, filterPtr, filterLen, ignoreCase) == 0)
+						return true;
+				}
+				return false;
+			}
+			return (initialLen >= filterLen) && (String.Compare(&initialStr, filterLen, filterPtr, filterLen, ignoreCase) == 0);
+		}
+
+		bool IsSubstringMatch(String entry, String filter, bool ignoreCase)
+		{
+			int filterLen = filter.Length;
+			int entryLen = entry.Length;
+			if ((filterLen == 0) || (filterLen > entryLen))
+				return false;
+
+			char8* entryPtr = entry.Ptr;
+			char8* filterPtr = filter.Ptr;
+			for (int entryIdx = 0; entryIdx <= entryLen - filterLen; entryIdx++)
+			{
+				if (String.Compare(entryPtr + entryIdx, filterLen, filterPtr, filterLen, ignoreCase) == 0)
+					return true;
+			}
+
+			return false;
+		}
+
+		int32 GetEntryMatchTier(AutoCompleteListWidget.EntryWidget entry, String filter, bool doFuzzyAutoComplete)
+		{
+			if (filter.Length == 0)
+				return MATCH_TIER_OTHER;
+
+			String display = entry.mEntryDisplay;
+			if (display == filter)
+				return MATCH_TIER_EXACT_CASE;
+
+			if ((display.Length == filter.Length) && (String.Compare(filter, 0, display, 0, filter.Length, true) == 0))
+				return MATCH_TIER_EXACT_NOCASE;
+
+			if ((filter.Length <= display.Length) && (String.Compare(filter, 0, display, 0, filter.Length, false) == 0))
+				return MATCH_TIER_PREFIX_CASE;
+
+			if ((filter.Length <= display.Length) && (String.Compare(filter, 0, display, 0, filter.Length, true) == 0))
+				return MATCH_TIER_PREFIX_NOCASE;
+
+			if (IsWordBoundaryPrefixMatch(display, filter, false))
+				return MATCH_TIER_WORD_PREFIX_CASE;
+
+			if (IsWordBoundaryPrefixMatch(display, filter, true))
+				return MATCH_TIER_WORD_PREFIX_NOCASE;
+
+			if (IsSubstringMatch(display, filter, false))
+				return MATCH_TIER_SUBSTRING_CASE;
+
+			if (IsSubstringMatch(display, filter, true))
+				return MATCH_TIER_SUBSTRING_NOCASE;
+
+			if (IsInitialsMatch(display, filter, false))
+				return MATCH_TIER_INITIALS_CASE;
+
+			if (IsInitialsMatch(display, filter, true))
+				return MATCH_TIER_INITIALS_NOCASE;
+
+			if (doFuzzyAutoComplete)
+				return MATCH_TIER_FUZZY;
+
+			return MATCH_TIER_OTHER;
+		}
+
+		int32 GetEntryTypePriority(StringView entryType, String filter, bool isMember)
+		{
+			bool isTypeLike = false;
+			bool isMemberLike = false;
+			bool isNamespaceLike = false;
+			switch (entryType)
+			{
+			case "class", "interface", "valuetype", "payloadEnum", "generic", "object":
+				isTypeLike = true;
+			case "method", "extmethod", "property", "field", "variable", "value", "parameter":
+				isMemberLike = true;
+			case "namespace", "folder":
+				isNamespaceLike = true;
+			default:
+			}
+
+			bool prefersTypeLike = false;
+			bool prefersMemberLike = false;
+			if (!filter.IsEmpty)
+			{
+				char8 firstC = filter[0];
+				if (firstC.IsUpper)
+					prefersTypeLike = true;
+				else if (firstC.IsLower)
+					prefersMemberLike = true;
+			}
+
+			if (isMember)
+			{
+				if (isMemberLike)
+					return 0;
+				if (isTypeLike)
+					return 1;
+				if (isNamespaceLike)
+					return 2;
+				return 3;
+			}
+
+			if (prefersTypeLike)
+			{
+				if (isTypeLike)
+					return 0;
+				if (isNamespaceLike)
+					return 1;
+				if (isMemberLike)
+					return 2;
+				return 3;
+			}
+
+			if (prefersMemberLike)
+			{
+				if (isMemberLike)
+					return 0;
+				if (isTypeLike)
+					return 1;
+				if (isNamespaceLike)
+					return 2;
+				return 3;
+			}
+
+			if (isTypeLike || isMemberLike)
+				return 1;
+			if (isNamespaceLike)
+				return 2;
+			return 3;
+		}
+
+		int CompareEntries(AutoCompleteListWidget.EntryWidget left, AutoCompleteListWidget.EntryWidget right)
+		{
+			if (left.mMatchTier < right.mMatchTier)
+				return -1;
+			if (left.mMatchTier > right.mMatchTier)
+				return 1;
+
+			if ((left.mMatchTier >= MATCH_TIER_FUZZY) || (right.mMatchTier >= MATCH_TIER_FUZZY))
+			{
+				if (left.mScore > right.mScore)
+					return -1;
+				if (left.mScore < right.mScore)
+					return 1;
+			}
+
+			if (left.mTypePriority < right.mTypePriority)
+				return -1;
+			if (left.mTypePriority > right.mTypePriority)
+				return 1;
+
+			if (left.mMRUPriority > right.mMRUPriority)
+				return -1;
+			if (left.mMRUPriority < right.mMRUPriority)
+				return 1;
+
+			int nameLenCmp = left.mEntryDisplay.Length - right.mEntryDisplay.Length;
+			if (nameLenCmp != 0)
+				return nameLenCmp;
+
+			return String.Compare(left.mEntryDisplay, right.mEntryDisplay, true);
+		}
+
 		/// Checks whether the given entry matches the filter and updates its score and match indices accordingly.
 		bool DoesFilterMatchFuzzy(AutoCompleteListWidget.EntryWidget entry, String filter)
 		{
@@ -2386,27 +2914,39 @@ namespace IDE.ui
 
 			int filterLen = (int)filter.Length;
 			int entryLen = (int)entry.Length;
+			bool entryHasNonAscii = false;
+			for (int i = 0; i < entryLen; i++)
+			{
+				if ((uint8)entryPtr[i] >= 0x80)
+				{
+					entryHasNonAscii = true;
+					break;
+				}
+			}
 
 			bool hasUnderscore = false;
 			bool checkInitials = filterLen > 1;
+			if ((entryHasNonAscii) && (filterLen > 0))
+				checkInitials = true;
 			for (int i = 0; i < (int)filterLen; i++)
 			{
 				char8 c = filterPtr[i];
 				if (c == '_')
 					hasUnderscore = true;
-				else if (filterPtr[i].IsLower)
+				else if ((filterPtr[i].IsLower) && (!entryHasNonAscii))
 					checkInitials = false;
 			}
 
 			if (hasUnderscore)
 				return (entryLen >= filterLen) && (String.Compare(entryPtr, filterLen, filterPtr, filterLen, true) == 0);
 
-			char8[256] initialStr;
-			char8* initialStrP = &initialStr;
+			char8[256] initialStr = ?;
+			uint8[256] initialPos;
+			char8* initialStrPtr = &initialStr;
+			bool hasPinyinInitial = false;
+			int initialLen = BuildInitialsAndPositions(entry, &initialStr, &initialPos, initialStr.Count, out hasPinyinInitial);
 
-			//String initialStr;
 			bool prevWasUnderscore = false;
-			
 			for (int entryIdx = 0; entryIdx < entryLen; entryIdx++)
 			{
 				char8 entryC = entryPtr[entryIdx];
@@ -2421,8 +2961,6 @@ namespace IDE.ui
 				{
 					if ((entryLen - entryIdx >= filterLen) && (String.Compare(entryPtr + entryIdx, filterLen, filterPtr, filterLen, true) == 0))
 						return true;
-					if (checkInitials)
-						*(initialStrP++) = entryC;
 				}
 				prevWasUnderscore = false;
 
@@ -2431,9 +2969,167 @@ namespace IDE.ui
 			}	
 
 			if (!checkInitials)
-				return false;
-			int initialLen = initialStrP - (char8*)&initialStr;
-			return (initialLen >= filterLen) && (String.Compare(&initialStr, filterLen, filterPtr, filterLen, true) == 0);
+				return IsSubstringMatch(entry, filter, true);
+			if ((filterLen == 1) && (!hasPinyinInitial))
+				return IsSubstringMatch(entry, filter, true);
+			if (hasPinyinInitial)
+			{
+				for (int startIdx = 0; startIdx <= initialLen - filterLen; startIdx++)
+				{
+					if (String.Compare(initialStrPtr + startIdx, filterLen, filterPtr, filterLen, true) == 0)
+						return true;
+				}
+			}
+			else if ((initialLen >= filterLen) && (String.Compare(&initialStr, filterLen, filterPtr, filterLen, true) == 0))
+				return true;
+
+			// Rider-like fallback: allow infix match, e.g. "e"/"es" -> "Test".
+			return IsSubstringMatch(entry, filter, true);
+		}
+
+		int FindSubstringStart(String entry, String filter, bool ignoreCase)
+		{
+			int filterLen = filter.Length;
+			int entryLen = entry.Length;
+			if (filterLen == 0)
+				return 0;
+			if (filterLen > entryLen)
+				return -1;
+
+			char8* entryPtr = entry.Ptr;
+			char8* filterPtr = filter.Ptr;
+			for (int entryIdx = 0; entryIdx <= entryLen - filterLen; entryIdx++)
+			{
+				if (String.Compare(entryPtr + entryIdx, filterLen, filterPtr, filterLen, ignoreCase) == 0)
+					return entryIdx;
+			}
+			return -1;
+		}
+
+		int FindWordBoundaryPrefixStart(String entry, String filter, bool ignoreCase)
+		{
+			int filterLen = filter.Length;
+			int entryLen = entry.Length;
+			if ((filterLen == 0) || (filterLen > entryLen))
+				return -1;
+
+			char8* entryPtr = entry.Ptr;
+			char8* filterPtr = filter.Ptr;
+			bool prevWasUnderscore = false;
+			for (int entryIdx = 0; entryIdx < entryLen; entryIdx++)
+			{
+				char8 entryC = entryPtr[entryIdx];
+				if (entryC == '_')
+				{
+					prevWasUnderscore = true;
+					continue;
+				}
+
+				if ((entryIdx == 0) || (prevWasUnderscore) || (entryC.IsUpper) || (entryC.IsDigit))
+				{
+					if ((entryLen - entryIdx >= filterLen) && (String.Compare(entryPtr + entryIdx, filterLen, filterPtr, filterLen, ignoreCase) == 0))
+						return entryIdx;
+				}
+				prevWasUnderscore = false;
+			}
+			return -1;
+		}
+
+		void SetEntryMatchRange(AutoCompleteListWidget.EntryWidget entry, int start, int length)
+		{
+			if ((start < 0) || (length <= 0))
+			{
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+				return;
+			}
+
+			uint8[256] matches = ?;
+			int count = 0;
+			int end = Math.Min(start + length, entry.mEntryDisplay.Length);
+			for (int i = start; i < end; i++)
+			{
+				if ((i > uint8.MaxValue) || (count >= matches.Count))
+					break;
+				matches[count++] = (uint8)i;
+			}
+
+			if (count == 0)
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+			else
+				entry.SetMatches(Span<uint8>(&matches, count));
+		}
+
+		void SetEntryInitialMatches(AutoCompleteListWidget.EntryWidget entry, String filter, bool ignoreCase)
+		{
+			int filterLen = filter.Length;
+			if (filterLen <= 0)
+			{
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+				return;
+			}
+
+			String display = entry.mEntryDisplay;
+			char8* filterPtr = filter.Ptr;
+
+			char8[256] initials = ?;
+			uint8[256] initialPos = ?;
+			char8* initialsPtr = &initials;
+			uint8* initialPosPtr = &initialPos;
+			bool hasPinyinInitial = false;
+			int initialCount = BuildInitialsAndPositions(display, &initials, &initialPos, initials.Count, out hasPinyinInitial);
+			if ((filterLen == 1) && (!hasPinyinInitial))
+			{
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+				return;
+			}
+
+			if (hasPinyinInitial)
+			{
+				for (int startIdx = 0; startIdx <= initialCount - filterLen; startIdx++)
+				{
+					if (String.Compare(initialsPtr + startIdx, filterLen, filterPtr, filterLen, ignoreCase) == 0)
+					{
+						entry.SetMatches(Span<uint8>(initialPosPtr + startIdx, filterLen));
+						return;
+					}
+				}
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+				return;
+			}
+
+			if ((initialCount >= filterLen) && (String.Compare(&initials, filterLen, filterPtr, filterLen, ignoreCase) == 0))
+				entry.SetMatches(Span<uint8>(&initialPos, filterLen));
+			else
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+		}
+
+		void UpdateNonFuzzyMatches(AutoCompleteListWidget.EntryWidget entry, String filter)
+		{
+			if (filter.IsEmpty)
+			{
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+				return;
+			}
+
+			switch (entry.mMatchTier)
+			{
+			case MATCH_TIER_EXACT_CASE, MATCH_TIER_EXACT_NOCASE, MATCH_TIER_PREFIX_CASE, MATCH_TIER_PREFIX_NOCASE:
+				SetEntryMatchRange(entry, 0, filter.Length);
+			case MATCH_TIER_WORD_PREFIX_CASE:
+				SetEntryMatchRange(entry, FindWordBoundaryPrefixStart(entry.mEntryDisplay, filter, false), filter.Length);
+			case MATCH_TIER_WORD_PREFIX_NOCASE:
+				SetEntryMatchRange(entry, FindWordBoundaryPrefixStart(entry.mEntryDisplay, filter, true), filter.Length);
+			case MATCH_TIER_SUBSTRING_CASE:
+				SetEntryMatchRange(entry, FindSubstringStart(entry.mEntryDisplay, filter, false), filter.Length);
+			case MATCH_TIER_SUBSTRING_NOCASE:
+				SetEntryMatchRange(entry, FindSubstringStart(entry.mEntryDisplay, filter, true), filter.Length);
+			case MATCH_TIER_INITIALS_CASE:
+				SetEntryInitialMatches(entry, filter, false);
+			case MATCH_TIER_INITIALS_NOCASE:
+				SetEntryInitialMatches(entry, filter, true);
+			default:
+				SetEntryMatchRange(entry, FindSubstringStart(entry.mEntryDisplay, filter, true), filter.Length);
+			}
 		}
 
         void UpdateData(String selectString, bool changedAfterInfo)
@@ -2458,11 +3154,29 @@ namespace IDE.ui
                 else
 				{
 					curString = scope:: String();
-                    mTargetEditWidget.Content.ExtractString(insertStartIdx, mInsertEndIdx - insertStartIdx, curString);
+					String identifierFilter = scope:: String();
+					GetIdentifierFilterAtCursor(identifierFilter);
+					if ((mIsMember) && (!identifierFilter.IsEmpty))
+					{
+						curString.Append(identifierFilter);
+					}
+					else
+					{
+                    	mTargetEditWidget.Content.ExtractString(insertStartIdx, mInsertEndIdx - insertStartIdx, curString);
+						// Some parser insert ranges may skip a leading digit in mixed token input (eg "1s").
+						// Prefer the full identifier-at-cursor when it provides a longer filter.
+						if ((!identifierFilter.IsEmpty) && (identifierFilter.Length > curString.Length))
+						{
+							curString.Clear();
+							curString.Append(identifierFilter);
+						}
+					}
 				}
                 
-                //if (selectString == null)
-				if (changedAfterInfo)
+				// Re-rank when text changed OR we have a non-empty filter string.
+				// This keeps server-refresh path (changedAfterInfo=false) aligned with local VS-like ordering.
+				bool shouldRefilterAndSort = changedAfterInfo || (curString.Length > 0);
+				if (shouldRefilterAndSort)
                 {
 					mAutoCompleteListWidget.mSelectIdx = -1;
 
@@ -2490,40 +3204,74 @@ namespace IDE.ui
 					if (curString == ".")
 						curString.Clear();
 
+					// For member access expressions like "p.es" / "ptr->es", only filter by the tail segment.
+					// This matches Rider/VS behavior and avoids filtering against the full expression text.
+					int splitIdx = curString.LastIndexOf('.');
+					int lastColon = curString.LastIndexOf(':');
+					if (lastColon > splitIdx)
+						splitIdx = lastColon;
+					for (int i = 1; i < curString.Length; i++)
+					{
+						if ((curString[i - 1] == '-') && (curString[i] == '>'))
+							splitIdx = Math.Max(splitIdx, i);
+					}
+
+					if (splitIdx != -1)
+					{
+						if (splitIdx + 1 >= curString.Length)
+							curString.Clear();
+						else
+							curString.Remove(0, splitIdx + 1);
+					}
+
 					bool doFuzzyAutoComplete = gApp.mSettings.mEditorSettings.mFuzzyAutoComplete;
 
                     for (int i < mAutoCompleteListWidget.mFullEntryList.Count)
                     {
                         var entry = mAutoCompleteListWidget.mFullEntryList[i];
 
-						if (doFuzzyAutoComplete && DoesFilterMatchFuzzy(entry, curString))
-                        {
+						bool fuzzyMatched = false;
+						if (doFuzzyAutoComplete)
+							fuzzyMatched = DoesFilterMatchFuzzy(entry, curString);
+						bool nonFuzzyMatched = DoesFilterMatch(entry.mEntryDisplay, curString);
+
+						if (fuzzyMatched || nonFuzzyMatched)
+						{
+							if (!fuzzyMatched)
+								entry.mScore = 0;
+							entry.mMatchTier = GetEntryMatchTier(entry, curString, doFuzzyAutoComplete);
+							entry.mTypePriority = GetEntryTypePriority(entry.mEntryType, curString, mIsMember);
+							if (nonFuzzyMatched)
+								UpdateNonFuzzyMatches(entry, curString);
+							sAutoCompleteMRU.TryGetValue(entry.mEntryDisplay, out entry.mMRUPriority);
 							mAutoCompleteListWidget.mEntryList.Add(entry);
+							if (!doFuzzyAutoComplete)
+								mAutoCompleteListWidget.UpdateEntry(entry, visibleCount);
                             visibleCount++;
-                        }
-						else if (!doFuzzyAutoComplete && DoesFilterMatch(entry.mEntryDisplay, curString))
-                        {
-							mAutoCompleteListWidget.mEntryList.Add(entry);
-							mAutoCompleteListWidget.UpdateEntry(entry, visibleCount);
-                            visibleCount++;
-                        }
-                        else
-                        {
+						}
+						else
+						{
+							entry.mScore = 0;
+							entry.mMatchTier = MATCH_TIER_OTHER;
+							entry.mTypePriority = 3;
+							entry.mMRUPriority = -1;
                             mAutoCompleteListWidget.UpdateEntry(entry, -1);
-                        }                                        
+						}
                     }
 
-					if (doFuzzyAutoComplete)
 					{
-						// sort entries because the scores probably have changed
+						String log = scope .();
+						log.AppendF("AC.UpdateData filter='{0}' changed={1} member={2} fuzzy={3} full={4} visible={5}",
+							curString, changedAfterInfo, mIsMember, doFuzzyAutoComplete, mAutoCompleteListWidget.mFullEntryList.Count, visibleCount);
+						Trace(log);
+					}
+
+					if ((doFuzzyAutoComplete) || (curString.Length > 0))
+					{
+						// VS-like ordering: exact/prefix/camelCase-first, then fuzzy, then MRU/name.
 						mAutoCompleteListWidget.mEntryList.Sort(scope (left, right) =>
 							{
-								if (left.mScore > right.mScore)
-									return -1;
-								else if (left.mScore < right.mScore)
-									return 1;
-								else
-									return String.Compare(left.mEntryDisplay, right.mEntryDisplay, true);
+								return CompareEntries(left, right);
 							});
 	
 						for (int i < mAutoCompleteListWidget.mEntryList.Count)
@@ -2534,6 +3282,30 @@ namespace IDE.ui
 
                     if ((visibleCount == 0) && (mInvokeSrcPositions == null))
                     {
+						if ((mIsMember) && (mAutoCompleteListWidget != null) && (mAutoCompleteListWidget.mFullEntryList.Count > 0))
+						{
+							// Over-filtered member completion: hide popup safely but keep cached full list.
+							// Use Close() (not Dispose()) and detach root to avoid dangling widget/window references.
+							if (mListWindow != null)
+							{
+								if (mListWindow.mRootWidget == mAutoCompleteListWidget)
+									mListWindow.mRootWidget = null;
+								mListWindow.Close();
+								mListWindow = null;
+							}
+							if ((IsInPanel()) && (mAutoCompleteListWidget.mParent != null))
+								mAutoCompleteListWidget.RemoveSelf();
+							if (mAutoCompleteListWidget != null)
+							{
+								mAutoCompleteListWidget.mOwnsWindow = false;
+								mAutoCompleteListWidget.mWidgetWindow = null;
+							}
+							Trace("AC.UpdateData HIDE visible=0 member keepCache");
+							mPopulating = false;
+							return;
+						}
+
+						Trace("AC.UpdateData CLOSE visible=0 invoke=null");
 						mPopulating = false;
                         Close();
                         return;
@@ -2796,12 +3568,124 @@ namespace IDE.ui
 			}
 		}
 
+		void AddCurrentFileTypeEntries()
+		{
+			if ((mAutoCompleteListWidget == null) || (mInvokeOnly))
+				return;
+			if (mIsMember)
+				return;
+
+			int32 checkPos = (mInsertStartIdx != null) ? mInsertStartIdx.Value : (int32)mTargetEditWidget.Content.CursorTextPos;
+			int32 left = checkPos - 1;
+			while ((left >= 0) && (mTargetEditWidget.Content.mData.mText[left].mChar.IsWhiteSpace))
+				left--;
+			if (left >= 0)
+			{
+				char32 c = mTargetEditWidget.Content.mData.mText[left].mChar;
+				if (c == '.')
+					return;
+				if ((c == ':') && (left > 0) && (mTargetEditWidget.Content.mData.mText[left - 1].mChar == ':'))
+					return;
+				if ((c == '>') && (left > 0) && (mTargetEditWidget.Content.mData.mText[left - 1].mChar == '-'))
+					return;
+			}
+
+			var sewc = mTargetEditWidget.Content as SourceEditWidgetContent;
+			if (sewc == null)
+				return;
+
+			var data = sewc.PreparedData;
+			if (data == null)
+				return;
+
+			bool HasEntryDisplay(StringView entryDisplay)
+			{
+				for (var entry in mAutoCompleteListWidget.mFullEntryList)
+				{
+					if (entry.mEntryDisplay == entryDisplay)
+						return true;
+				}
+				return false;
+			}
+
+			void AddTypeNameIfNeeded(StringView typeName, Image classIcon)
+			{
+				if (typeName.IsEmpty)
+					return;
+				if (HasEntryDisplay(typeName))
+					return;
+				mAutoCompleteListWidget.AddEntry("class", typeName, classIcon);
+			}
+
+			let classIcon = DarkTheme.sDarkTheme.GetImage(.Type_Class);
+			for (var typeName in data.mTypeNames)
+			{
+				if (typeName != null)
+					AddTypeNameIfNeeded(typeName, classIcon);
+			}
+
+			// Fallback: parse current source text directly so newly-typed local types
+			// (including Chinese names) are available even if backend list is filtered.
+			String sourceText = scope:: String();
+			var content = mTargetEditWidget.Content;
+			content.ExtractString(0, content.mData.mTextLength, sourceText);
+
+			bool IsTypeDeclKeyword(StringView token)
+			{
+				switch (token)
+				{
+				case "class", "struct", "interface", "enum":
+					return true;
+				default:
+					return false;
+				}
+			}
+
+			int idx = 0;
+			while (idx < sourceText.Length)
+			{
+				char8 c = sourceText[idx];
+				if (!AutoComplete.IsIdentifierStartChar(c))
+				{
+					idx++;
+					continue;
+				}
+
+				int tokenStart = idx;
+				idx++;
+				while ((idx < sourceText.Length) && AutoComplete.IsIdentifierChar(sourceText[idx]))
+					idx++;
+				StringView token = StringView(sourceText, tokenStart, idx - tokenStart);
+				if (!IsTypeDeclKeyword(token))
+					continue;
+
+				while ((idx < sourceText.Length) && sourceText[idx].IsWhiteSpace)
+					idx++;
+
+				if ((idx < sourceText.Length) && (sourceText[idx] == '@'))
+					idx++;
+
+				if ((idx >= sourceText.Length) || (!AutoComplete.IsIdentifierStartChar(sourceText[idx])))
+					continue;
+
+				int typeStart = idx;
+				idx++;
+				while ((idx < sourceText.Length) && AutoComplete.IsIdentifierChar(sourceText[idx]))
+					idx++;
+				StringView typeName = StringView(sourceText, typeStart, idx - typeStart);
+				AddTypeNameIfNeeded(typeName, classIcon);
+			}
+		}
+
         public void SetInfo(String info, bool clearList = true, int32 textOffset = 0, bool changedAfterInfo = false)
         {
 			//Debug.WriteLine($"AutoComplete TextOffset:{textOffset} SetInfo:{info}");
 
 			scope AutoBeefPerf("AutoComplete.SetInfo");
 
+			bool hadPreviousInsertRange = mInsertStartIdx != null;
+			int32 previousInsertStart = hadPreviousInsertRange ? mInsertStartIdx.Value : -1;
+			int32 previousInsertEnd = mInsertEndIdx;
 			DeleteAndNullify!(mInfoFilter);
 
 			mPopulating = true;
@@ -2815,8 +3699,120 @@ namespace IDE.ui
 			delete mInvokeSrcPositions;
             mInvokeSrcPositions = null;
 			mUncertain = false;
+			bool doClearList = clearList;
 
-            if (clearList)
+			// Some backends return only control records for intermediate member filters.
+			// If there are no actual completion entries, keep the current list and re-filter locally.
+			bool hasCompletionEntries = false;
+			bool responseIsMember = false;
+			bool hasIsMemberToken = false;
+			for (var entryView in info.Split('\n'))
+			{
+				if (entryView.IsEmpty)
+					continue;
+
+				StringView entryType = StringView(entryView);
+				int tabPos = entryType.IndexOf('\t');
+				StringView entryDisplay = default;
+				if (tabPos != -1)
+				{
+					entryDisplay = StringView(entryView, tabPos + 1);
+					entryType = StringView(entryType, 0, tabPos);
+				}
+
+				if (entryType == "isMember")
+				{
+					responseIsMember = true;
+					hasIsMemberToken = true;
+				}
+
+				bool isControlEntry =
+					(entryType == "insertRange") ||
+					(entryType == "invoke") ||
+					(entryType == "invoke_cur") ||
+					(entryType == "isMember") ||
+					(entryType == "invokeInfo") ||
+					(entryType == "invokeLeftParen") ||
+					(entryType == "select") ||
+					(entryType == "uncertain");
+				if ((!isControlEntry) && (entryDisplay.Ptr != null))
+					hasCompletionEntries = true;
+
+				if (hasCompletionEntries)
+					break;
+			}
+
+			bool reuseExistingMemberEntries = false;
+			bool hasPrevFullList = (mAutoCompleteListWidget != null) && (!mAutoCompleteListWidget.mFullEntryList.IsEmpty);
+			bool IsMemberAccessBefore(int32 pos)
+			{
+				if (pos <= 0)
+					return false;
+
+				int32 left = pos - 1;
+				while ((left >= 0) && (mTargetEditWidget.Content.mData.mText[left].mChar.IsWhiteSpace))
+					left--;
+
+				if (left < 0)
+					return false;
+
+				char32 c = mTargetEditWidget.Content.mData.mText[left].mChar;
+				if (c == '.')
+					return true;
+				if ((c == ':') && (left > 0) && (mTargetEditWidget.Content.mData.mText[left - 1].mChar == ':'))
+					return true;
+				if ((c == '>') && (left > 0) && (mTargetEditWidget.Content.mData.mText[left - 1].mChar == '-'))
+					return true;
+				return false;
+			}
+
+			bool isMemberContextByText = false;
+			int32 checkStartPos = previousInsertStart;
+			if (!hadPreviousInsertRange)
+			{
+				var data = mTargetEditWidget.Content.mData;
+				int32 cursorPos = (int32)mTargetEditWidget.Content.CursorTextPos;
+				cursorPos = Math.Min(cursorPos, data.mTextLength);
+				int32 startPos = cursorPos;
+				while (startPos > 0)
+				{
+					char32 c = data.mText[startPos - 1].mChar;
+					if (!AutoComplete.IsIdentifierChar(c))
+						break;
+					startPos--;
+				}
+				checkStartPos = startPos;
+			}
+			isMemberContextByText = IsMemberAccessBefore(checkStartPos);
+			if ((!hasIsMemberToken) && (isMemberContextByText))
+				responseIsMember = true;
+
+			bool shouldKeepExistingOnIncrement =
+				hasPrevFullList &&
+				clearList &&
+				(!changedAfterInfo) &&
+				(hasIsMemberToken || mIsMember || isMemberContextByText);
+			if (shouldKeepExistingOnIncrement)
+			{
+				// Preserve the first full list for the current completion session and do local filtering only.
+				// This keeps items like "GetType" available for infix filters like "t"/"et".
+				doClearList = false;
+				reuseExistingMemberEntries = true;
+				if (!hasIsMemberToken)
+					responseIsMember = mIsMember || isMemberContextByText;
+			}
+
+			mIsMember = responseIsMember;
+
+			{
+				int32 prevFullCount = (mAutoCompleteListWidget != null) ? (.)mAutoCompleteListWidget.mFullEntryList.Count : -1;
+				String log = scope .();
+				log.AppendF("AC.SetInfo len={0} clear={1} doClear={2} changed={3} hasEntries={4} memberCtx={5} reuse={6} prevFull={7} hadInsert={8}",
+					info.Length, clearList, doClearList, changedAfterInfo, hasCompletionEntries, responseIsMember, reuseExistingMemberEntries, prevFullCount, hadPreviousInsertRange);
+				Trace(log);
+			}
+
+            if (doClearList)
             {
                 if (mAutoCompleteListWidget != null)
                 {
@@ -2844,6 +3840,7 @@ namespace IDE.ui
 			}
             
 			bool queueClearInvoke = false;
+			bool hasInsertRangeEntry = false;
             if (queueClearInvoke)
             {
                 mInvokeSrcPositions = null;
@@ -2973,6 +3970,7 @@ namespace IDE.ui
                 {
                 case "insertRange":
                     {
+						hasInsertRangeEntry = true;
                         //var infoSections = scope List<StringView>(entryDisplay.Split(' '));
 						int spacePos = entryDisplay.IndexOf(' ');
 						if (spacePos != -1)
@@ -2994,23 +3992,25 @@ namespace IDE.ui
 						isInvoke = true;
                     }
                 case "invoke_cur":
-                    // Only use the "invoke_cur" if we don't already have an invoke widget
-                    if ((mInvokeWidget == null) || (mInvokeWidget.mEntryList.Count <= 1))
-                    {
-                        isInvoke = true;
-                    }
-                    else
-                    {
-                        for (int32 invokeIdx = 0; invokeIdx < mInvokeWidget.mEntryList.Count; invokeIdx++)
-                        {
-                            var invokeEntry = mInvokeWidget.mEntryList[invokeIdx];                                
-                            if (invokeEntry.mText == entryDisplay)
-                            {
-                                mInvokeWidget.mSelectIdx = invokeIdx;
-                            }                                
-                        }
-                    }
-                    break;
+					{
+						// Only use the "invoke_cur" if we don't already have an invoke widget
+	                    if ((mInvokeWidget == null) || (mInvokeWidget.mEntryList.Count <= 1))
+	                    {
+	                        isInvoke = true;
+	                    }
+	                    else
+	                    {
+	                        for (int32 invokeIdx = 0; invokeIdx < mInvokeWidget.mEntryList.Count; invokeIdx++)
+	                        {
+	                            var invokeEntry = mInvokeWidget.mEntryList[invokeIdx];                                
+	                            if (invokeEntry.mText == entryDisplay)
+	                            {
+	                                mInvokeWidget.mSelectIdx = invokeIdx;
+	                            }                                
+	                        }
+	                    }
+	                    break;
+					}
                 case "isMember":
                     mIsMember = true;
                 case "invokeInfo":
@@ -3043,7 +4043,8 @@ namespace IDE.ui
 						if (!mInvokeOnly)
 						{
 							mIsFixit |= entryType == "fixit";
-                            mAutoCompleteListWidget.AddEntry(entryType, entryDisplay, entryIcon, entryInsert, documentation, matchIndices);
+							if (!reuseExistingMemberEntries)
+	                            mAutoCompleteListWidget.AddEntry(entryType, entryDisplay, entryIcon, entryInsert, documentation, matchIndices);
 						}
                     }                        
                 }
@@ -3062,9 +4063,17 @@ namespace IDE.ui
 					invokeEntry.mArgMatchCount = int32.Parse(entryInsert).GetValueOrDefault();
 					if (!documentation.IsEmpty)
 						invokeEntry.mDocumentation = new String(documentation);
-					mInvokeWidget.AddEntry(invokeEntry);                            
+                    mInvokeWidget.AddEntry(invokeEntry);                            
 				}
             }
+
+			if ((!hasInsertRangeEntry) && (hadPreviousInsertRange) && (reuseExistingMemberEntries))
+			{
+				mInsertStartIdx = new .(this, previousInsertStart);
+				mInsertEndIdx = previousInsertEnd;
+			}
+
+			AddCurrentFileTypeEntries();
 
             if (oldInvokeWidget != null)
             {
@@ -3089,7 +4098,7 @@ namespace IDE.ui
 			}
 			Debug.WriteLine($"AutoComplete SetInfo mInsertSpanSpaceCount:{mInsertSpanSpaceCount}");*/
 
-            if ((changedAfterInfo) || (mTargetEditWidget.Content.mTextCursors.Count > 1))
+            if ((changedAfterInfo) || (mTargetEditWidget.Content.mTextCursors.Count > 1) || (reuseExistingMemberEntries) || (mInsertStartIdx == null))
             {
                 GetAsyncTextPos();                
             }

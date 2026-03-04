@@ -1370,8 +1370,20 @@ namespace IDE.ui
 				if ((autoComplete != null) && (autoComplete.mIsDocumentationPass))
 				{
 					Debug.Assert(ewc.mAutoComplete != null);
-					let selectedEntry = ewc.mAutoComplete.mAutoCompleteListWidget.mEntryList[ewc.mAutoComplete.mAutoCompleteListWidget.mSelectIdx];
-					resolveParams.mDocumentationName = new String(selectedEntry.mEntryDisplay);
+					var listWidget = ewc.mAutoComplete.mAutoCompleteListWidget;
+					if ((listWidget != null) &&
+						(listWidget.mSelectIdx >= 0) &&
+						(listWidget.mSelectIdx < listWidget.mEntryList.Count))
+					{
+						let selectedEntry = listWidget.mEntryList[listWidget.mSelectIdx];
+						resolveParams.mDocumentationName = new String(selectedEntry.mEntryDisplay);
+					}
+					else
+					{
+						// Entry list may be temporarily empty while over-filtered.
+						// Skip doc pass to avoid indexing invalid selection.
+						autoComplete.mIsDocumentationPass = false;
+					}
 				}
 				resolveParams.mTextVersion = Content.mData.mCurTextVersionId;
 
@@ -1698,6 +1710,11 @@ namespace IDE.ui
 
             if (wantOpen)
             {
+				{
+					String log = scope .();
+					log.AppendF("SVP.HandleAutocompleteInfo OPEN len={0} clear={1} changed={2} resolve={3}", autocompleteInfo.Length, clearList, changedAfterInfo, resolveType);
+					AutoComplete.Trace(log);
+				}
                 if (editWidgetContent.mAutoComplete == null)
                 {
                     editWidgetContent.mAutoComplete = new AutoComplete(mEditWidget);
@@ -1720,8 +1737,28 @@ namespace IDE.ui
 				else
                 	editWidgetContent.mAutoComplete.SetInfo(autocompleteInfo, clearList, textPosOffset, changedAfterInfo);
             }
-            else if ((editWidgetContent.mAutoComplete != null) && (!editWidgetContent.mAutoComplete.mIsDocumentationPass))
-                editWidgetContent.mAutoComplete.Close();
+			else if ((editWidgetContent.mAutoComplete != null) && (!editWidgetContent.mAutoComplete.mIsDocumentationPass))
+            {
+				{
+					String log = scope .();
+					log.AppendF("SVP.HandleAutocompleteInfo EMPTY len=0 clear={0} changed={1} resolve={2}", clearList, changedAfterInfo, resolveType);
+					AutoComplete.Trace(log);
+				}
+				// Some compiler backends return empty autocomplete payloads while typing member filters.
+				// Keep the current member list alive and re-filter locally instead of closing immediately.
+				var autoComplete = editWidgetContent.mAutoComplete;
+				if ((autoComplete.mAutoCompleteListWidget != null) &&
+					(!autoComplete.mAutoCompleteListWidget.mFullEntryList.IsEmpty))
+				{
+					AutoComplete.Trace("SVP.HandleAutocompleteInfo EMPTY -> UpdateAsyncInfo");
+					autoComplete.UpdateAsyncInfo();
+				}
+				else
+				{
+					AutoComplete.Trace("SVP.HandleAutocompleteInfo EMPTY -> Close");
+                	autoComplete.Close();
+				}
+			}
         }
 
 #if IDE_C_SUPPORT
@@ -5417,12 +5454,12 @@ namespace IDE.ui
 
 		static bool HoverSig_IsIdentifierStartChar(char8 c)
 		{
-			return (c == '_') || (c.IsLetter);
+			return (c == '_') || (c.IsLetter) || ((uint8)c >= 0x80);
 		}
 
 		static bool HoverSig_IsIdentifierChar(char8 c)
 		{
-			return (c == '_') || (c.IsLetterOrDigit);
+			return (c == '_') || (c.IsLetterOrDigit) || ((uint8)c >= 0x80);
 		}
 
 		static bool HoverSig_IsKeywordToken(StringView token)
@@ -5705,6 +5742,20 @@ namespace IDE.ui
 					bool isFieldOwnerToken = (fieldOwnerStart != -1) && (tokenStart >= fieldOwnerStart) && (tokenEnd <= fieldOwnerLastEnd);
 					bool isFieldOwnerTypeToken = (tokenStart == fieldOwnerLastStart) && (tokenEnd == fieldOwnerLastEnd);
 					bool isResolvedFieldMemberToken = (fieldMemberStart != -1) && (tokenStart == fieldMemberStart) && (tokenEnd == fieldMemberEnd);
+					bool isImmediateTypeOwnerForMethod = false;
+					if ((methodStart != -1) && hasDotNext)
+					{
+						int32 probeIdx = nextIdx + 1;
+						while ((probeIdx < titleStr.Length) && (titleStr[probeIdx].IsWhiteSpace))
+							probeIdx++;
+						int32 nextIdentStart = probeIdx;
+						while ((probeIdx < titleStr.Length) && HoverSig_IsIdentifierChar(titleStr[probeIdx]))
+							probeIdx++;
+						int32 nextIdentEnd = probeIdx;
+						while ((probeIdx < titleStr.Length) && (titleStr[probeIdx].IsWhiteSpace))
+							probeIdx++;
+						isImmediateTypeOwnerForMethod = (nextIdentStart == methodStart) && (nextIdentEnd <= methodEnd) && (probeIdx < titleStr.Length) && (titleStr[probeIdx] == '(');
+					}
 
 					if ((methodStart != -1) && (tokenStart >= methodStart) && (tokenEnd <= methodEnd))
 						tokenColor = colors.mMethod;
@@ -5718,8 +5769,8 @@ namespace IDE.ui
 						tokenColor = colors.mPrimitiveType;
 					else if (angleDepth > 0)
 						tokenColor = colors.mGenericParam;
-					else if (isMethodOwnerToken)
-						tokenColor = isMethodOwnerTypeToken ? colors.mRefType : colors.mNamespace;
+					else if (isMethodOwnerToken || isImmediateTypeOwnerForMethod)
+						tokenColor = (isMethodOwnerTypeToken || isImmediateTypeOwnerForMethod) ? colors.mRefType : colors.mNamespace;
 					else if (isFieldOwnerToken)
 						tokenColor = isFieldOwnerTypeToken ? colors.mRefType : colors.mNamespace;
 					else if (isQualified)
@@ -8111,8 +8162,8 @@ namespace IDE.ui
 				if (checkPos < 0)
 					continue;
 
-				let c = ewc.mData.mText[checkPos].mChar;
-				if ((c.IsLetterOrDigit) || (c == '_') || (c == '@'))
+				char8 c = (char8)ewc.mData.mText[checkPos].mChar;
+				if (AutoComplete.IsIdentifierChar(c) || (c == '@'))
 					return true;
 				if ((offset == 0) && (c == '.'))
 					return true;

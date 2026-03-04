@@ -827,6 +827,7 @@ namespace IDE.ui
 		HilitePairedCharState mHilitePairedCharState = .NeedToRecalculate;
 		List<int32> mRainbowParenLineDepths = new List<int32>() ~ delete _;
 		int32 mRainbowParenTextVersionId = -1;
+		bool mHadCtrlHoverUnderline;
 		public Dictionary<int32, CollapseEntry> mCollapseMap = new .() ~ delete _;
 		public List<CollapseEntry*> mOrderedCollapseEntries = new .() ~ delete _;
 		public List<String> mCollapseTypeNames = new .() ~ DeleteContainerAndItems!(_);
@@ -3943,7 +3944,7 @@ namespace IDE.ui
                 hasEmptyAutocompleteReplace = mAutoComplete.mInsertEndIdx == -1;
 			bool didAutoComplete = false;
 
-            bool isEndingChar = (keyChar >= (char8)32) && !keyChar.IsLetterOrDigit && (keyChar != '_') && (keyChar != '~') && (keyChar != '=') && (keyChar != '!') && (keyChar != ':');
+            bool isEndingChar = (keyChar >= (char8)32) && (!AutoComplete.IsIdentifierChar(keyChar)) && (keyChar != '~') && (keyChar != '=') && (keyChar != '!') && (keyChar != ':');
 
 			if ((mAutoComplete != null) && (mAutoComplete.mAutoCompleteListWidget != null) && (!mAutoComplete.mAutoCompleteListWidget.mEntryList.IsEmpty))
 			{
@@ -3973,11 +3974,11 @@ namespace IDE.ui
 				bool forceAsyncFinish = false;
 				if (CurCursorTextPos > 0)
 				{
-					char8 c = mData.mText[CurCursorTextPos - 1].mChar;
+					char32 c = mData.mText[CurCursorTextPos - 1].mChar;
 					var displayType = (SourceElementType)mData.mText[CurCursorTextPos - 1].mDisplayTypeId;
 					if ((displayType != .Comment) && (displayType != .Literal))
 					{
-						if ((c.IsLetterOrDigit) || (c == '_'))
+						if (AutoComplete.IsIdentifierChar(c))
 						{
 							// Could be a symbol autocomplete?
 							forceAsyncFinish = true;
@@ -4966,6 +4967,13 @@ namespace IDE.ui
 
 			if ((btn == 0) && (mWidgetWindow.mMouseDownKeyFlags.HasFlag(.Ctrl)) && (x == origX) && (y == origY))
 			{
+				int ctrlHoverStartIdx;
+				int ctrlHoverEndIdx;
+				if (TryGetCtrlHoverIdentifierRangeAt(x, y, out ctrlHoverStartIdx, out ctrlHoverEndIdx, false))
+				{
+					// Keep the cursor on the hovered symbol so single-char identifiers resolve consistently.
+					CursorTextPos = Math.Max(0, ctrlHoverEndIdx - 1);
+				}
 				gApp.GoToDefinition(false);
 				return;
 			}
@@ -5794,6 +5802,16 @@ namespace IDE.ui
 
         }
 
+		public override void MouseMove(float x, float y)
+		{
+			base.MouseMove(x, y);
+
+			int ctrlHoverStartIdx;
+			int ctrlHoverEndIdx;
+			if (TryGetCtrlHoverIdentifierRangeAt(x, y, out ctrlHoverStartIdx, out ctrlHoverEndIdx, true))
+				BFApp.sApp.SetCursor(.Hand);
+		}
+
         public override void Update()
         {
             base.Update();
@@ -5881,6 +5899,18 @@ namespace IDE.ui
 				{
 					DeleteAndNullify!(mFastCursorState);
 				}
+			}
+
+			int ctrlHoverStartIdx;
+			int ctrlHoverEndIdx;
+			bool hasCtrlHoverUnderline = TryGetCtrlHoverIdentifierRange(out ctrlHoverStartIdx, out ctrlHoverEndIdx);
+			if (hasCtrlHoverUnderline != mHadCtrlHoverUnderline)
+			{
+				mHadCtrlHoverUnderline = hasCtrlHoverUnderline;
+				MarkDirty();
+
+				if ((mWidgetWindow != null) && (mWidgetWindow.mHasMouseInside))
+					BFApp.sApp.SetCursor(hasCtrlHoverUnderline ? .Hand : .Text);
 			}
         }
 
@@ -6570,6 +6600,143 @@ namespace IDE.ui
 			}
 		}
 
+		bool IsIdentifierChar(char8 c)
+		{
+			return AutoComplete.IsIdentifierChar(c) || (c == '@');
+		}
+
+		bool IsCtrlHoverElementTypeAllowed(SourceElementType elementType)
+		{
+			return (elementType != .Comment) && (elementType != .Literal) && (elementType != .Keyword);
+		}
+
+		bool TryGetCtrlHoverIdentifierRangeAt(float x, float y, out int startIdx, out int endIdx, bool requireCtrl = true)
+		{
+			startIdx = -1;
+			endIdx = -1;
+
+			if ((mWidgetWindow == null) || (!mWidgetWindow.mHasMouseInside))
+				return false;
+			if ((requireCtrl) && (!mWidgetWindow.IsKeyDown(.Control)))
+				return false;
+			if (mMouseFlags.HasFlag(.Left))
+				return false;
+			if ((mSourceViewPanel == null) || (!mSourceViewPanel.mIsSourceCode))
+				return false;
+
+			int line;
+			int lineChar;
+			float overflowX;
+			if (!GetLineCharAtCoord(x, y, out line, out lineChar, out overflowX))
+				return false;
+			if (overflowX > GS!(6))
+				return false;
+
+			int textIdx = GetTextIdx(line, lineChar);
+			if ((textIdx < 0) || (mData.mTextLength <= 0))
+				return false;
+
+			int useIdx = -1;
+			for (int ofs = 0; ofs >= -1; ofs--)
+			{
+				int checkIdx = textIdx + ofs;
+				if ((checkIdx < 0) || (checkIdx >= mData.mTextLength))
+					continue;
+				char8 c = (char8)mData.mText[checkIdx].mChar;
+				if (!IsIdentifierChar(c))
+					continue;
+				let elementType = (SourceElementType)mData.mText[checkIdx].mDisplayTypeId;
+				if (!IsCtrlHoverElementTypeAllowed(elementType))
+					continue;
+
+				useIdx = checkIdx;
+				break;
+			}
+
+			if (useIdx == -1)
+				return false;
+
+			int left = useIdx;
+			while (left > 0)
+			{
+				char8 c = (char8)mData.mText[left - 1].mChar;
+				if (!IsIdentifierChar(c))
+					break;
+				let elementType = (SourceElementType)mData.mText[left - 1].mDisplayTypeId;
+				if (!IsCtrlHoverElementTypeAllowed(elementType))
+					break;
+				left--;
+			}
+
+			int right = useIdx + 1;
+			while (right < mData.mTextLength)
+			{
+				char8 c = (char8)mData.mText[right].mChar;
+				if (!IsIdentifierChar(c))
+					break;
+				let elementType = (SourceElementType)mData.mText[right].mDisplayTypeId;
+				if (!IsCtrlHoverElementTypeAllowed(elementType))
+					break;
+				right++;
+			}
+
+			if (right <= left)
+				return false;
+
+			startIdx = left;
+			endIdx = right;
+			return true;
+		}
+
+		bool TryGetCtrlHoverIdentifierRange(out int startIdx, out int endIdx)
+		{
+			startIdx = -1;
+			endIdx = -1;
+			if (mWidgetWindow == null)
+				return false;
+
+			float mouseX;
+			float mouseY;
+			RootToSelfTranslate(mWidgetWindow.mMouseX, mWidgetWindow.mMouseY, out mouseX, out mouseY);
+			return TryGetCtrlHoverIdentifierRangeAt(mouseX, mouseY, out startIdx, out endIdx, true);
+		}
+
+		void DrawCtrlHoverUnderline(Graphics g)
+		{
+			int startIdx;
+			int endIdx;
+			if (!TryGetCtrlHoverIdentifierRange(out startIdx, out endIdx))
+				return;
+
+			int startLine;
+			int startChar;
+			int endLine;
+			int endChar;
+			GetLineCharAtIdx(startIdx, out startLine, out startChar);
+			GetLineCharAtIdx(endIdx, out endLine, out endChar);
+			if ((startLine != endLine) || (GetLineHeight(startLine) <= 0.1f))
+				return;
+
+			float startX;
+			float startY;
+			float endX;
+			float endY;
+			GetTextCoordAtLineChar(startLine, startChar, out startX, out startY);
+			GetTextCoordAtLineChar(endLine, endChar, out endX, out endY);
+
+			float width = endX - startX;
+			if (width <= 0.1f)
+				return;
+
+			float thickness = Math.Max(GS!(1.0f), 1.0f);
+			float underlineY = startY + GetTextOffset() + mFont.GetLineSpacing() - thickness - GS!(0.5f);
+
+			using (g.PushColor(0x8045749B))
+				g.FillRect(startX, underlineY + thickness, width, thickness);
+			using (g.PushColor(0xFF71BAFF))
+				g.FillRect(startX, underlineY, width, thickness);
+		}
+
         public override void Draw(Graphics g)
         {
             base.Draw(g);
@@ -6713,9 +6880,10 @@ namespace IDE.ui
                     }
 					queuedTextEntry.Dispose();
                 }
-                mQueuedText.Clear();
+				mQueuedText.Clear();
 
 				DrawRainbowParens(g);
+				DrawCtrlHoverUnderline(g);
             }
 
 			if (mFastCursorState != null)

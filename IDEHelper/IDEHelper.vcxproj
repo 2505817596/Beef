@@ -132,10 +132,10 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;CPP_PINYIN_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm-3.8\llvm\include;C:\llvm-3.8\bin\include;C:\llvm-3.8\llvm\lib\Target;C:\llvm-3.8\bin\lib\Target\X86;C:\llvm-3.8\llvm\tools\clang\include</AdditionalIncludeDirectories>
       <BufferSecurityCheck>false</BufferSecurityCheck>
-      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS /utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <SupportJustMyCode>false</SupportJustMyCode>
@@ -161,10 +161,10 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;CPP_PINYIN_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;..\extern\llvm-project_19_1_7\llvm\include;..\extern\llvm_win64_19_1_7\include;..\extern\llvm-project_19_1_7\llvm\lib\Target;..\extern\llvm_win64_19_1_7\lib\Target\AArch64;..\extern\llvm_win64_19_1_7\lib\Target\X86;..\extern\llvm-project_19_1_7\llvm\tools\clang\include;..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\include</AdditionalIncludeDirectories>
       <BufferSecurityCheck>false</BufferSecurityCheck>
-      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>-D_SCL_SECURE_NO_WARNINGS /utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <SupportJustMyCode>false</SupportJustMyCode>
@@ -198,8 +198,9 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;CPP_PINYIN_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm-3.8\llvm\include;C:\llvm-3.8\bin\include;C:\llvm-3.8\llvm\lib\Target;C:\llvm-3.8\bin\lib\Target\X86;C:\llvm-3.8\llvm\tools\clang\include</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -224,8 +225,9 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>zBP_DISABLED;WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>zBP_DISABLED;WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;CPP_PINYIN_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;..\extern\llvm-project_19_1_7\llvm\include;..\extern\llvm_win64_19_1_7\include;..\extern\llvm-project_19_1_7\llvm\lib\Target;..\extern\llvm_win64_19_1_7\lib\Target\X86;..\extern\llvm-project_19_1_7\llvm\tools\clang\include;..\extern\curl\builds\libcurl-vc15-x64-release-static-zlib-static-ipv6-sspi-winssl\include</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -256,8 +258,9 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;CPP_PINYIN_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm\llvm\include;C:\llvm\src\include;C:\llvm\llvm\lib\Target;C:\llvm\src\lib\Target\X86;C:\llvm\llvm\tools\clang\include</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
@@ -281,8 +284,9 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IDEHELPER_EXPORTS;BFSYSLIB_DYNAMIC;CPP_PINYIN_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>../;../BeefySysLib/platform/win;../BeefySysLib/third_party;C:\llvm\llvm\include;C:\llvm\src\include;C:\llvm\llvm\lib\Target;C:\llvm\src\lib\Target\X86;C:\llvm\llvm\tools\clang\include</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
@@ -358,7 +362,43 @@
     <ClCompile Include="Linker\BlPdbParser.cpp" />
     <ClCompile Include="Linker\BlSymTable.cpp" />
     <ClCompile Include="NetManager.cpp" />
+    <ClCompile Include="PinyinBridge.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="SpellChecker.cpp" />
+    <ClCompile Include="third_party\cpp-pinyin-main\src\ChineseG2p.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\DictUtil.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\G2pglobal.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\Jyutping.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\Pinyin.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\PinyinRes.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\ToneConverter.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\U16Str.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\toneUtil\CanTone.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\toneUtil\ManTone.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="third_party\cpp-pinyin-main\src\toneUtil\ManToneUtil.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\cpp-pinyin-main\include;$(ProjectDir)third_party\cpp-pinyin-main\src;$(ProjectDir)third_party\cpp-pinyin-main\src\toneUtil;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="Targets.cpp" />
     <ClCompile Include="VSSupport.cpp" />
     <ClCompile Include="X64.cpp" />
@@ -451,6 +491,9 @@
       <Project>{53609bb3-d874-465c-af7b-df626db0d89b}</Project>
     </ProjectReference>
   </ItemGroup>
+  <Target Name="CopyCppPinyinDict" AfterTargets="Build">
+    <Exec Command="if exist &quot;$(ProjectDir)third_party\cpp-pinyin-main\res\dict&quot; xcopy /E /I /Y &quot;$(ProjectDir)third_party\cpp-pinyin-main\res\dict&quot; &quot;$(OutDir)dict\&quot;" />
+  </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
