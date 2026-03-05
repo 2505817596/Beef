@@ -1980,10 +1980,12 @@ namespace IDE.ui
 		public String mInfoFilter ~ delete _;
         public List<int32> mInvokeSrcPositions ~ delete _;
         public static int32 sAutoCompleteIdx = 1;
-        public static Dictionary<String, int32> sAutoCompleteMRU = new Dictionary<String, int32>() {
+		public static Dictionary<String, int32> sAutoCompleteMRU = new Dictionary<String, int32>() {
 			(new String("return"), (int32)1)
 			} ~ delete _;
 		public static Dictionary<char32, char8> sPinyinInitialCache = new .() ~ delete _;
+		public static Dictionary<char32, String> sPinyinFullCache = new .() ~ { for (var val in _.Values) delete val; delete _; };
+		public static bool sPinyinFullCacheLoaded = false;
         public bool mIsAsync = true;
         public bool mIsMember;        
 		public bool mIsFixit;
@@ -2569,8 +2571,185 @@ namespace IDE.ui
 		const int32 MATCH_TIER_SUBSTRING_NOCASE = 7;
 		const int32 MATCH_TIER_INITIALS_CASE = 8;
 		const int32 MATCH_TIER_INITIALS_NOCASE = 9;
-		const int32 MATCH_TIER_FUZZY = 10;
-		const int32 MATCH_TIER_OTHER = 11;
+		const int32 MATCH_TIER_PINYIN_FULL_CASE = 10;
+		const int32 MATCH_TIER_PINYIN_FULL_NOCASE = 11;
+		const int32 MATCH_TIER_FUZZY = 12;
+		const int32 MATCH_TIER_OTHER = 13;
+
+		bool IsAsciiPinyinLetter(char8 c)
+		{
+			return ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'));
+		}
+
+		bool TryMapPinyinChar(char32 c32, out char8 mapped)
+		{
+			mapped = 0;
+
+			if (c32 <= (char32)0x7F)
+			{
+				char8 c8 = (char8)c32;
+				if (IsAsciiPinyinLetter(c8))
+				{
+					if ((c8 >= 'A') && (c8 <= 'Z'))
+						c8 = (char8)(c8 - 'A' + 'a');
+					mapped = c8;
+					return true;
+				}
+				return false;
+			}
+
+			switch ((uint32)c32)
+			{
+			// a
+			case 0x0101, 0x00E1, 0x01CE, 0x00E0:
+				mapped = 'a';
+			// e
+			case 0x0113, 0x00E9, 0x011B, 0x00E8, 0x00EA:
+				mapped = 'e';
+			// i
+			case 0x012B, 0x00ED, 0x01D0, 0x00EC:
+				mapped = 'i';
+			// o
+			case 0x014D, 0x00F3, 0x01D2, 0x00F2:
+				mapped = 'o';
+			// u
+			case 0x016B, 0x00FA, 0x01D4, 0x00F9:
+				mapped = 'u';
+			// u-umlaut variants -> v (common pinyin input)
+			case 0x00FC, 0x01D6, 0x01D8, 0x01DA, 0x01DC:
+				mapped = 'v';
+			// n
+			case 0x0144, 0x0148, 0x01F9:
+				mapped = 'n';
+			// m
+			case 0x1E3F:
+				mapped = 'm';
+			default:
+				return false;
+			}
+
+			return true;
+		}
+
+		void AddPinyinCacheEntry(char32 c32, StringView pinyinToken)
+		{
+			if (pinyinToken.IsEmpty)
+				return;
+
+			String normalized = new String();
+			for (char32 pinyinC in pinyinToken.DecodedChars)
+			{
+				char8 mapped = 0;
+				if (!TryMapPinyinChar(pinyinC, out mapped))
+					continue;
+				normalized.Append(mapped);
+			}
+
+			if (normalized.IsEmpty)
+			{
+				delete normalized;
+				return;
+			}
+
+			char32* keyPtr = null;
+			String* valuePtr = null;
+			if (sPinyinFullCache.TryAdd(c32, out keyPtr, out valuePtr))
+				*valuePtr = normalized;
+			else
+				delete normalized;
+		}
+
+		void EnsurePinyinFullCacheLoaded()
+		{
+			if (sPinyinFullCacheLoaded)
+				return;
+			sPinyinFullCacheLoaded = true;
+
+			String wordPath = scope .();
+			wordPath.Append(BFApp.sApp.mInstallDir, "dict/mandarin/word.txt");
+			if (!File.Exists(wordPath))
+			{
+				wordPath.Set(BFApp.sApp.mInstallDir);
+				wordPath.Append("../../IDEHelper/third_party/cpp-pinyin-main/res/dict/mandarin/word.txt");
+				IDEUtils.FixFilePath(wordPath);
+			}
+			if (!File.Exists(wordPath))
+			{
+				wordPath.Set("IDEHelper/third_party/cpp-pinyin-main/res/dict/mandarin/word.txt");
+				IDEUtils.FixFilePath(wordPath);
+			}
+			if (!File.Exists(wordPath))
+				return;
+
+			String fileText = scope .();
+			if (File.ReadAllText(wordPath, fileText) case .Err)
+				return;
+
+			for (var lineView in fileText.Split('\n'))
+			{
+				StringView line = lineView;
+				line.Trim();
+				if (line.IsEmpty)
+					continue;
+
+				int colonIdx = line.IndexOf(':');
+				if (colonIdx <= 0)
+					continue;
+
+				StringView keyView = .(line, 0, colonIdx);
+				StringView valueView = .(line, colonIdx + 1);
+				keyView.Trim();
+				valueView.Trim();
+				if ((keyView.IsEmpty) || (valueView.IsEmpty))
+					continue;
+
+				char32 keyChar = 0;
+				for (char32 c in keyView.DecodedChars)
+				{
+					keyChar = c;
+					break;
+				}
+				if (keyChar == 0)
+					continue;
+
+				StringView bestToken = default;
+				for (var tokenView in valueView.Split(','))
+				{
+					StringView token = tokenView;
+					token.Trim();
+					if (token.IsEmpty)
+						continue;
+
+					bool allAsciiLetters = true;
+					for (int i = 0; i < token.Length; i++)
+					{
+						if (!IsAsciiPinyinLetter(token[i]))
+						{
+							allAsciiLetters = false;
+							break;
+						}
+					}
+
+					if (allAsciiLetters)
+					{
+						bestToken = token;
+						break;
+					}
+
+					if (bestToken.IsEmpty)
+						bestToken = token;
+				}
+
+				if (!bestToken.IsEmpty)
+					AddPinyinCacheEntry(keyChar, bestToken);
+			}
+		}
+
+		bool TryGetPinyinFull(char32 c32, out String pinyin)
+		{
+			EnsurePinyinFullCacheLoaded();
+			return sPinyinFullCache.TryGetValue(c32, out pinyin) && (pinyin != null) && (!pinyin.IsEmpty);
+		}
 
 		bool TryGetPinyinInitial(char32 c32, out char8 initial)
 		{
@@ -2580,20 +2759,37 @@ namespace IDE.ui
 			if (sPinyinInitialCache.TryGetValue(c32, out initial))
 				return initial != 0;
 
-			if ((c32 < (char32)0x3400) || (c32 > (char32)0x9FFF) || (c32 > (char32)0xFFFF))
+			String pinyinFull = null;
+			if (TryGetPinyinFull(c32, out pinyinFull))
 			{
-				sPinyinInitialCache[c32] = 0;
-				return false;
+				initial = pinyinFull[0];
+			}
+			else
+			{
+				initial = IDEHelper_GetPinyinInitial(c32);
+				if ((initial >= 'A') && (initial <= 'Z'))
+					initial = (char8)(initial - 'A' + 'a');
 			}
 
-			initial = IDEHelper_GetPinyinInitial(c32);
-			if ((initial >= 'A') && (initial <= 'Z'))
-				initial = (char8)(initial - 'A' + 'a');
 			sPinyinInitialCache[c32] = initial;
 			return initial != 0;
 #else
 			return false;
 #endif
+		}
+
+		bool IsAsciiIdentifierFilter(String filter)
+		{
+			if (filter.IsEmpty)
+				return false;
+
+			for (int i = 0; i < filter.Length; i++)
+			{
+				char8 c = filter[i];
+				if (((uint8)c >= 0x80) || ((!c.IsLetterOrDigit) && (c != '_')))
+					return false;
+			}
+			return true;
 		}
 
 		int BuildInitialsAndPositions(String entry, char8* initials, uint8* initialPos, int maxCount, out bool hasPinyinInitial)
@@ -2645,6 +2841,92 @@ namespace IDE.ui
 			}
 
 			return initialCount;
+		}
+
+		int BuildPinyinAndPositions(String entry, char8* pinyinChars, uint8* pinyinPos, int maxCount, out bool hasPinyin)
+		{
+			hasPinyin = false;
+			int pinyinCount = 0;
+			int entryIdx = 0;
+
+			for (char32 entryC in entry.DecodedChars)
+			{
+				int nextEntryIdx = @entryC.NextIndex;
+				if (entryIdx > uint8.MaxValue)
+				{
+					entryIdx = nextEntryIdx;
+					continue;
+				}
+
+				if (entryC <= (char32)0x7F)
+				{
+					char8 c8 = (char8)entryC;
+					if (c8.IsLetterOrDigit)
+					{
+						if (pinyinCount < maxCount)
+						{
+							if ((c8 >= 'A') && (c8 <= 'Z'))
+								c8 = (char8)(c8 - 'A' + 'a');
+							pinyinChars[pinyinCount] = c8;
+							pinyinPos[pinyinCount] = (uint8)entryIdx;
+							pinyinCount++;
+						}
+					}
+
+					entryIdx = nextEntryIdx;
+					continue;
+				}
+
+				String pinyinFull = null;
+				if (TryGetPinyinFull(entryC, out pinyinFull))
+				{
+					hasPinyin = true;
+					for (int i = 0; i < pinyinFull.Length; i++)
+					{
+						if (pinyinCount >= maxCount)
+							break;
+						char8 pc = pinyinFull[i];
+						if (!IsAsciiPinyinLetter(pc))
+							break;
+						pinyinChars[pinyinCount] = pc;
+						pinyinPos[pinyinCount] = (uint8)entryIdx;
+						pinyinCount++;
+					}
+				}
+
+				entryIdx = nextEntryIdx;
+			}
+
+			return pinyinCount;
+		}
+
+		int FindPinyinStart(char8* pinyinChars, int pinyinLen, char8* filterPtr, int filterLen, bool ignoreCase)
+		{
+			if ((filterLen <= 0) || (filterLen > pinyinLen))
+				return -1;
+
+			for (int startIdx = 0; startIdx <= pinyinLen - filterLen; startIdx++)
+			{
+				if (String.Compare(pinyinChars + startIdx, filterLen, filterPtr, filterLen, ignoreCase) == 0)
+					return startIdx;
+			}
+
+			return -1;
+		}
+
+		bool IsPinyinFullMatch(String entry, String filter, bool ignoreCase)
+		{
+			if (!IsAsciiIdentifierFilter(filter))
+				return false;
+
+			char8[1024] pinyinChars = ?;
+			uint8[1024] pinyinPos = ?;
+			bool hasPinyin = false;
+			int pinyinLen = BuildPinyinAndPositions(entry, &pinyinChars, &pinyinPos, pinyinChars.Count, out hasPinyin);
+			if ((!hasPinyin) || (pinyinLen <= 0))
+				return false;
+
+			return FindPinyinStart(&pinyinChars, pinyinLen, filter.Ptr, filter.Length, ignoreCase) != -1;
 		}
 
 		bool IsWordBoundaryPrefixMatch(String entry, String filter, bool ignoreCase)
@@ -2759,6 +3041,12 @@ namespace IDE.ui
 
 			if (IsInitialsMatch(display, filter, true))
 				return MATCH_TIER_INITIALS_NOCASE;
+
+			if (IsPinyinFullMatch(display, filter, false))
+				return MATCH_TIER_PINYIN_FULL_CASE;
+
+			if (IsPinyinFullMatch(display, filter, true))
+				return MATCH_TIER_PINYIN_FULL_NOCASE;
 
 			if (doFuzzyAutoComplete)
 				return MATCH_TIER_FUZZY;
@@ -2983,6 +3271,9 @@ namespace IDE.ui
 			else if ((initialLen >= filterLen) && (String.Compare(&initialStr, filterLen, filterPtr, filterLen, true) == 0))
 				return true;
 
+			if (IsPinyinFullMatch(entry, filter, true))
+				return true;
+
 			// Rider-like fallback: allow infix match, e.g. "e"/"es" -> "Test".
 			return IsSubstringMatch(entry, filter, true);
 		}
@@ -3103,6 +3394,51 @@ namespace IDE.ui
 				entry.SetMatches(Span<uint8>((uint8*)null, 0));
 		}
 
+		void SetEntryPinyinMatches(AutoCompleteListWidget.EntryWidget entry, String filter, bool ignoreCase)
+		{
+			if (!IsAsciiIdentifierFilter(filter))
+			{
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+				return;
+			}
+
+			char8[1024] pinyinChars = ?;
+			uint8[1024] pinyinPos = ?;
+			bool hasPinyin = false;
+			int pinyinLen = BuildPinyinAndPositions(entry.mEntryDisplay, &pinyinChars, &pinyinPos, pinyinChars.Count, out hasPinyin);
+			if ((!hasPinyin) || (pinyinLen <= 0))
+			{
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+				return;
+			}
+
+			int startIdx = FindPinyinStart(&pinyinChars, pinyinLen, filter.Ptr, filter.Length, ignoreCase);
+			if (startIdx == -1)
+			{
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+				return;
+			}
+
+			uint8[256] matchPos = ?;
+			int matchCount = 0;
+			int endIdx = Math.Min(startIdx + filter.Length, pinyinLen);
+			for (int i = startIdx; i < endIdx; i++)
+			{
+				uint8 pos = pinyinPos[i];
+				if ((matchCount == 0) || (matchPos[matchCount - 1] != pos))
+				{
+					if (matchCount >= matchPos.Count)
+						break;
+					matchPos[matchCount++] = pos;
+				}
+			}
+
+			if (matchCount <= 0)
+				entry.SetMatches(Span<uint8>((uint8*)null, 0));
+			else
+				entry.SetMatches(Span<uint8>(&matchPos, matchCount));
+		}
+
 		void UpdateNonFuzzyMatches(AutoCompleteListWidget.EntryWidget entry, String filter)
 		{
 			if (filter.IsEmpty)
@@ -3127,6 +3463,10 @@ namespace IDE.ui
 				SetEntryInitialMatches(entry, filter, false);
 			case MATCH_TIER_INITIALS_NOCASE:
 				SetEntryInitialMatches(entry, filter, true);
+			case MATCH_TIER_PINYIN_FULL_CASE:
+				SetEntryPinyinMatches(entry, filter, false);
+			case MATCH_TIER_PINYIN_FULL_NOCASE:
+				SetEntryPinyinMatches(entry, filter, true);
 			default:
 				SetEntryMatchRange(entry, FindSubstringStart(entry.mEntryDisplay, filter, true), filter.Length);
 			}
