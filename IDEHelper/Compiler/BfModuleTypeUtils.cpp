@@ -4717,8 +4717,122 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 
 	typeInstance->mRebuildFlags = (BfTypeRebuildFlags)(typeInstance->mRebuildFlags & ~BfTypeRebuildFlag_ResolvingBase);
 
+		auto _PopulateSecondaryPartialBaseTypes = [&](bool allowInterfaceMerge)
+		{
+			if (!wantPopulateInterfaces)
+				return;
+
+			BfTypeDef* primaryPartialTypeDef = NULL;
+			if (typeDef->mIsCombinedPartial && (!typeDef->mPartials.empty()))
+				primaryPartialTypeDef = typeDef->mPartials.front();
+
+			for (auto partialTypeDef : typeDef->mPartials)
+			{
+				if (!typeInstance->IsTypeMemberIncluded(partialTypeDef))
+					continue;
+				if (partialTypeDef == primaryPartialTypeDef)
+					continue;
+
+			for (auto checkTypeRef : partialTypeDef->mBaseTypes)
+			{
+				SetAndRestoreValue<BfTypeReference*> prevTypeRef(mContext->mCurTypeState->mCurBaseTypeRef, checkTypeRef);
+				SetAndRestoreValue<BfTypeDef*> prevTypeDef(mContext->mCurTypeState->mCurTypeDef, partialTypeDef);
+				bool populateBase = !typeInstance->mTypeFailed;
+				auto checkType = ResolveTypeRef(checkTypeRef, BfPopulateType_Declaration);
+				if (checkType == NULL)
+					continue;
+
+				if (checkType->IsInterface())
+				{
+					if (!allowInterfaceMerge)
+						continue;
+
+					BfInterfaceDecl ifaceDecl;
+					ifaceDecl.mIFaceTypeInst = checkType->ToTypeInstance();
+					ifaceDecl.mTypeRef = checkTypeRef;
+					ifaceDecl.mDeclaringType = partialTypeDef;
+					interfaces.push_back(ifaceDecl);
+				}
+				else
+				{
+					auto checkTypeInst = checkType->ToTypeInstance();
+					if ((checkTypeInst != NULL) && (checkTypeInst == typeInstance->mBaseType))
+					{
+						// Allow repeated base declarations across partial definitions when they match.
+					}
+					else if ((checkTypeInst != NULL) && (typeInstance->mBaseType == defaultBaseTypeInst))
+					{
+						// Main partial did not establish a base type, so merge base type from this partial.
+						PopulateType(checkTypeInst, BfPopulateType_Data);
+
+						bool canUseAsBase = true;
+						if ((resolvedTypeRef->IsObject()) && (!checkTypeInst->IsObject()))
+						{
+							Fail("Class can only derive from another class", checkTypeRef, true);
+							canUseAsBase = false;
+						}
+						else if ((resolvedTypeRef->IsStruct()) && (!checkTypeInst->IsValueType()))
+						{
+							Fail("Struct can only derive from another struct", checkTypeRef, true);
+							canUseAsBase = false;
+						}
+
+						if (canUseAsBase)
+						{
+							typeInstance->mBaseType = checkTypeInst;
+							typeInstance->mBaseTypeMayBeIncomplete = false;
+							typeInstance->mMergedFieldDataCount = checkTypeInst->mMergedFieldDataCount;
+
+							if (typeDef->mTypeCode == BfTypeCode_Inferred)
+								typeDef->mTypeCode = checkTypeInst->mTypeDef->mTypeCode;
+
+							auto checkBaseType = checkTypeInst;
+							while (checkBaseType != NULL)
+							{
+								AddDependency(checkBaseType, typeInstance, BfDependencyMap::DependencyFlag_DerivedFrom);
+								checkBaseType = checkBaseType->mBaseType;
+							}
+
+							typeInstance->mWantsGCMarking = checkTypeInst->mWantsGCMarking;
+							typeInstance->mInheritDepth = checkTypeInst->mInheritDepth + 1;
+							typeInstance->mHasParameterizedBase = checkTypeInst->mHasParameterizedBase;
+							if ((checkTypeInst->IsArray()) || (checkTypeInst->IsSizedArray()) || (checkTypeInst->IsGenericTypeInstance()))
+								typeInstance->mHasParameterizedBase = true;
+
+							if (underlyingType == NULL)
+							{
+								typeInstance->mInstSize = checkTypeInst->mInstSize;
+								typeInstance->mInstAlign = checkTypeInst->mInstAlign;
+								typeInstance->mAlign = checkTypeInst->mAlign;
+								typeInstance->mSize = checkTypeInst->mSize;
+
+								if (checkTypeInst->IsValuelessCReprType())
+								{
+									typeInstance->mInstSize = 0;
+									if (typeInstance->IsValueType())
+										typeInstance->mSize = 0;
+								}
+
+								typeInstance->mHasPackingHoles = checkTypeInst->mHasPackingHoles;
+								if (checkTypeInst->mIsTypedPrimitive)
+									typeInstance->mIsTypedPrimitive = true;
+							}
+						}
+					}
+					else if (allowInterfaceMerge)
+					{
+						Fail(StrFormat("Extensions can only specify new interfaces, type '%s' is not a valid ", TypeToString(checkType).c_str()), checkTypeRef);
+					}
+				}
+			}
+		}
+	};
+
 	if (populateType <= BfPopulateType_BaseType)
+	{
+		_PopulateSecondaryPartialBaseTypes(false);
 		return;
+	}
 
 	if (typeInstance->IsGenericTypeInstance())
 	{
@@ -4729,39 +4843,7 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
  			FinishGenericParams(resolvedTypeRef);
 	}
 
-	if (wantPopulateInterfaces)
-	{
-		for (auto partialTypeDef : typeDef->mPartials)
-		{
-			if (!typeInstance->IsTypeMemberIncluded(partialTypeDef))
-				continue;
-			if (partialTypeDef->mTypeDeclaration == typeInstance->mTypeDef->mTypeDeclaration)
-				continue;
-
-			for (auto checkTypeRef : partialTypeDef->mBaseTypes)
-			{
-				SetAndRestoreValue<BfTypeReference*> prevTypeRef(mContext->mCurTypeState->mCurBaseTypeRef, checkTypeRef);
-				SetAndRestoreValue<BfTypeDef*> prevTypeDef(mContext->mCurTypeState->mCurTypeDef, partialTypeDef);
-				bool populateBase = !typeInstance->mTypeFailed;
-				auto checkType = ResolveTypeRef(checkTypeRef, BfPopulateType_Declaration);
-				if (checkType != NULL)
-				{
-					if (checkType->IsInterface())
-					{
-						BfInterfaceDecl ifaceDecl;
-						ifaceDecl.mIFaceTypeInst = checkType->ToTypeInstance();
-						ifaceDecl.mTypeRef = checkTypeRef;
-						ifaceDecl.mDeclaringType = partialTypeDef;
-						interfaces.push_back(ifaceDecl);
-					}
-					else
-					{
-						Fail(StrFormat("Extensions can only specify new interfaces, type '%s' is not a valid ", TypeToString(checkType).c_str()), checkTypeRef);
-					}
-				}
-			}
-		}
-	}
+	_PopulateSecondaryPartialBaseTypes(true);
 
 	if ((typeInstance->mBaseType != NULL) && (!typeInstance->IsTypedPrimitive()))
 	{
