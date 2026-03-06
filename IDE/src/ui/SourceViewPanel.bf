@@ -527,6 +527,7 @@ namespace IDE.ui
 		bool mDidSpellCheck;
 		int32 mSpellCheckJobCount;
 		int32 mResolveJobCount;
+		int32 mClassifyGeneration;
 		bool mWantsParserCleanup;
 		bool mInPostRemoveUpdatePanels;
 		bool mDeleteAfterPostRemoveUpdate;
@@ -760,6 +761,7 @@ namespace IDE.ui
 			if (gApp.mDbgPerfAutocomplete)
 				resolveParams.mProfileInstance = Profiler.StartSampling("Autocomplete").GetValueOrDefault();
 			resolveParams.mIsUserRequested = options.HasFlag(.UserRequested);
+			resolveParams.mOnlyShowInvoke = options.HasFlag(.OnlyShowInvoke);
 			resolveParams.mDoFuzzyAutoComplete = gApp.mSettings.mEditorSettings.mFuzzyAutoComplete;
 			Classify(.Autocomplete, resolveParams);
 			if (!resolveParams.mInDeferredList)
@@ -1362,6 +1364,8 @@ namespace IDE.ui
 				FindEmbeds(resolveParams);
 
 				resolveParams.mResolveType = resolveType;
+				if (useResolveType.IsClassify)
+					resolveParams.mClassifyGeneration = ++mClassifyGeneration;
 				resolveParams.mWaitEvent = new WaitEvent();
 				resolveParams.mInDeferredList = true;
 				mDeferredResolveResults.Add(resolveParams);
@@ -1693,7 +1697,7 @@ namespace IDE.ui
 			}
 		}
 
-        void HandleAutocompleteInfo(ResolveType resolveType, String autocompleteInfo, bool clearList, bool changedAfterInfo, int32 textPosOffset = 0)
+        void HandleAutocompleteInfo(ResolveType resolveType, String autocompleteInfo, bool clearList, bool changedAfterInfo, int32 textPosOffset = 0, bool onlyShowInvoke = false)
         {
             var editWidgetContent = (SourceEditWidgetContent)mEditWidget.Content;
 
@@ -1732,6 +1736,7 @@ namespace IDE.ui
                             CancelAutocomplete();
                         });
                 }
+				editWidgetContent.mAutoComplete.mInvokeOnly = onlyShowInvoke;
 				if (editWidgetContent.mAutoComplete.mIsDocumentationPass)
 					editWidgetContent.mAutoComplete.UpdateInfo(autocompleteInfo);
 				else
@@ -2029,7 +2034,7 @@ namespace IDE.ui
 					var autoComplete = GetAutoComplete();
 					if ((autoComplete != null) && (resolveParams != null))
 						autoComplete.mIsDocumentationPass = resolveParams.mDocumentationName != null;
-				    HandleAutocompleteInfo(resolveType, autocompleteInfo, true, changedAfterInfo, textPosOffset);
+				    HandleAutocompleteInfo(resolveType, autocompleteInfo, true, changedAfterInfo, textPosOffset, resolveParams?.mOnlyShowInvoke ?? false);
 					autoComplete = GetAutoComplete();
 					if (autoComplete != null)
 					{
@@ -5122,9 +5127,11 @@ namespace IDE.ui
                 Debug.Assert(destCharId == srcCharId);
 				Debug.Assert(destText[destIdx].mChar == charData[srcIdx].mChar);
 				
-                if (destText[destIdx].mDisplayPassId == (uint8)SourceDisplayId.AutoComplete)
+                if ((destText[destIdx].mDisplayPassId == (uint8)SourceDisplayId.AutoComplete) &&
+					(charData[srcIdx].mDisplayPassId != (uint8)SourceDisplayId.FullClassify))
                 {
-                    // Autocomplete beat us to it
+                    // Autocomplete beat us to it, unless we have a full classify result
+					// which should always become authoritative.
                     destText[destIdx].mDisplayPassId = (uint8)SourceDisplayId.Cleared;
                 }
 				else if (charData[srcIdx].mDisplayPassId == (uint8)SourceDisplayId.SkipResult)
@@ -6715,6 +6722,27 @@ namespace IDE.ui
 					mDeferredResolveResults.RemoveAt(checkIdx);
 
 				//Debug.WriteLine($"HandleResolveResult {resolveResult}");
+
+				if ((resolveResult.mResolveType.IsClassify) && (resolveResult.mTextVersion != -1))
+				{
+					let curTextVersion = mEditWidget.Content.mData.mCurTextVersionId;
+					bool isOutdatedClassify = resolveResult.mTextVersion != curTextVersion;
+					if ((!isOutdatedClassify) && (resolveResult.mClassifyGeneration != 0))
+						isOutdatedClassify = resolveResult.mClassifyGeneration < mClassifyGeneration;
+
+					if (isOutdatedClassify)
+					{
+						// Don't let older classify passes overwrite newer semantic colors.
+						resolveResult.mCancelled = true;
+
+						if (IsControllingEditData())
+						{
+							mWantsFullClassify = true;
+							if (resolveResult.mResolveType == .ClassifyFullRefresh)
+								mWantsFullRefresh = true;
+						}
+					}
+				}
 
 				HandleResolveResult(resolveResult.mResolveType, resolveResult.mAutocompleteInfo, resolveResult);
 

@@ -4482,6 +4482,15 @@ namespace IDE.ui
             {
                 bool isHighPri = (keyChar == '(') || (keyChar == '.');
 				bool needsFreshAutoComplete = ((isHighPri) /*|| (!mAsyncAutocomplete)*/ || (mAutoComplete == null) || (mAutoComplete.mAutoCompleteListWidget == null));
+				bool isLiteralEdit = prevElementType == .Literal;
+				if ((!isLiteralEdit) && (CursorTextPos < mData.mTextLength))
+					isLiteralEdit = (SourceElementType)mData.mText[CursorTextPos].mDisplayTypeId == .Literal;
+
+				if (isLiteralEdit)
+				{
+					needsFreshAutoComplete = false;
+					mAutoComplete?.CloseListWindow();
+				}
 
 				if ((needsFreshAutoComplete) && (keyChar == '\b'))
 				{
@@ -4491,7 +4500,7 @@ namespace IDE.ui
 					}
 				}
 
-				if (mAutoComplete != null)
+				if ((mAutoComplete != null) && (!isLiteralEdit))
 				{
 				    mAutoComplete.UpdateAsyncInfo();
 					needsFreshAutoComplete = true;
@@ -4502,7 +4511,15 @@ namespace IDE.ui
 					if (CheckReadOnly())
 						return;
 					if (IsCursorVisible(false))
-						mOnGenerateAutocomplete(keyChar, isHighPri ? .HighPriority : default);
+					{
+						if (keyChar == '(')
+						{
+							mAutoComplete?.CloseListWindow();
+							mOnGenerateAutocomplete(keyChar, .OnlyShowInvoke);
+						}
+						else
+							mOnGenerateAutocomplete(keyChar, isHighPri ? .HighPriority : default);
+					}
                 }
             }
             else if (mData.mCurTextVersionId != startRevision)

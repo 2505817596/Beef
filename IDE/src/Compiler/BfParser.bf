@@ -96,7 +96,9 @@ namespace IDE.Compiler
 		public String mDocumentationName ~ delete _;
 		public bool mCancelled;
 		public int32 mTextVersion = -1;
+		public int32 mClassifyGeneration;
 		public bool mIsUserRequested;
+		public bool mOnlyShowInvoke;
 		public bool mDoFuzzyAutoComplete;
 		public Stopwatch mStopwatch ~ delete _;
 		public ProfileInstance mProfileInstance ~ _.Dispose();
