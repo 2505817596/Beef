@@ -300,6 +300,12 @@ namespace IDE.ui
 			return sCodiconFont;
 		}
 
+
+		public static void Shutdown()
+		{
+			DeleteAndNullify!(sCodiconFont);
+			sTriedLoadCodiconFont = false;
+		}
 		public static bool TryGetCodiconForEntryType(StringView entryType, out char32 iconGlyph, out uint32 iconColor)
 		{
 			iconGlyph = '\0';
@@ -1018,7 +1024,7 @@ namespace IDE.ui
 					if (mScore > 100) // Simulate IntelliCode with stars
 					{
 						using (g.PushColor(AutoComplete.C_POPUP_ACCENT))
-							g.DrawString("★", GS!(22), GS!(1));
+							g.DrawString("\u{2605}", GS!(22), GS!(1));
 					}
 
 					float rightPadding = GS!(8);

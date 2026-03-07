@@ -900,6 +900,7 @@ namespace IDE
 				mExecutionPaused = false;
 			}
 
+			ui.AutoComplete.Shutdown();
 			base.Shutdown();
 		}
 
@@ -4698,25 +4699,8 @@ namespace IDE
 				}
 				else
 #endif
-				/*{
-					ResolveParams resolveParams = scope ResolveParams();
-					sourceViewPanel.Classify(ResolveType.GoToDefinition, resolveParams);
-					if (resolveParams.mOutFileName != null)
-					{
-						sourceViewPanel.RecordHistoryLocation();
-						sourceViewPanel = ShowSourceFileLocation(resolveParams.mOutFileName, -1, -1, resolveParams.mOutLine, resolveParams.mOutLineChar, LocatorType.Smart, true);
-						sourceViewPanel.RecordHistoryLocation(true);
-						return;
-					}
-				}
-
-				if (mBfResolveCompiler.HasResolvedAll())
 				{
-					Fail("Unable to locate definition");
-				}
-				else*/
-				{
-					sourceViewPanel.ShowSymbolReferenceHelper(.GoToDefinition);
+					sourceViewPanel.Classify(ResolveType.GoToDefinition);
 				}
 			}
 		}
@@ -13289,7 +13273,7 @@ namespace IDE
 			}
 
 			// Do we have an extended font?
-			if (mCodeFont.GetWidth('😊') == 0)
+			if (mCodeFont.GetWidth('\u{1F60A}') == 0)
 			{
 				mCodeFont.AddAlternate("Segoe UI", fontSize);
 				mCodeFont.AddAlternate("Segoe UI Symbol", fontSize).IgnoreError();

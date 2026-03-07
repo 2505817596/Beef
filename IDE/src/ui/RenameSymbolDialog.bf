@@ -71,6 +71,7 @@ namespace IDE.ui
         bool mTextChanged;
         int32 mStartIdx;
         int32 mEndIdx;
+		bool mDisposed;
         int32 mLastDeletedIdx = -1;
         bool mSkipNextUpdate;
 		bool mDoLock;
@@ -124,6 +125,10 @@ namespace IDE.ui
 		public ~this()
 		{
 			//Debug.WriteLine("SymbolReferenceHelper ~this {0}", this);
+			delete mPassInstance;
+			mPassInstance = null;
+			delete mResolvePassData;
+			mResolvePassData = null;
 		}
 
         public void Init(SourceViewPanel sourceViewPanel, Kind kind)
@@ -174,10 +179,16 @@ namespace IDE.ui
 
         public void SetSymbolInfo(String symbolInfo)
         {
+			if (mClosed)
+				return;
+
 			mGettingSymbolInfo = false;
             String foundStr = null;
             bool foundSymbol = false;
 			bool isTypeRef = false;
+			List<StringView> defLocationFilePaths = scope .();
+			List<int32> defLocationLines = scope .();
+			List<int32> defLocationLineChars = scope .();
 
             for (var infoLine in symbolInfo.Split('\n'))
             {
@@ -243,16 +254,23 @@ namespace IDE.ui
 
 					if (mKind == .GoToDefinition)
 					{
-					    mSourceViewPanel.RecordHistoryLocation();
-
-						var usePath = scope String(filePath);
-						if (usePath.StartsWith("$Emit$"))
-							usePath.Insert("$Emit$".Length, "Resolve$");
-
-					    var sourceViewPanel = gApp.ShowSourceFileLocation(usePath, -1, -1, line, lineChar, LocatorType.Smart, true);
-					    sourceViewPanel.RecordHistoryLocation(true);
-						Close();
-						return;
+						bool isDup = false;
+						for (int defLocationIdx < defLocationFilePaths.Count)
+						{
+							if ((defLocationLines[defLocationIdx] == line) && (defLocationLineChars[defLocationIdx] == lineChar) &&
+								(String.Equals(scope String(defLocationFilePaths[defLocationIdx]), scope String(filePath), Environment.IsFileSystemCaseSensitive ? .Ordinal : .OrdinalIgnoreCase)))
+							{
+								isDup = true;
+								break;
+							}
+						}
+						if (!isDup)
+						{
+							defLocationFilePaths.Add(filePath);
+							defLocationLines.Add(line);
+							defLocationLineChars.Add(lineChar);
+						}
+						continue;
 					}
 
 					if (mKind == .Rename)
@@ -285,6 +303,40 @@ namespace IDE.ui
 
 			if (mKind == .GoToDefinition)
 			{
+				if (defLocationFilePaths.Count == 1)
+				{
+					mSourceViewPanel?.RecordHistoryLocation();
+
+					var usePath = scope String(defLocationFilePaths[0]);
+					if (usePath.StartsWith("$Emit$"))
+						usePath.Insert("$Emit$".Length, "Resolve$");
+
+					var sourceViewPanel = gApp.ShowSourceFileLocation(usePath, -1, -1, defLocationLines[0], defLocationLineChars[0], LocatorType.Smart, true);
+					if (sourceViewPanel != null)
+						sourceViewPanel.RecordHistoryLocation(true);
+					Close();
+					return;
+				}
+
+				if (defLocationFilePaths.Count > 1)
+				{
+					Close();
+					gApp.ShowFindResults(false);
+					if (gApp.mFindResultsPanel == null)
+						return;
+					gApp.mFindResultsPanel.Clear();
+					gApp.mFindResultsPanel.QueueLine("Definition results:");
+					for (int defLocationIdx < defLocationFilePaths.Count)
+					{
+						var usePath = scope String(defLocationFilePaths[defLocationIdx]);
+						if (usePath.StartsWith("$Emit$"))
+							usePath.Insert("$Emit$".Length, "Resolve$");
+						gApp.mFindResultsPanel.QueueLine(usePath, defLocationLines[defLocationIdx], defLocationLineChars[defLocationIdx], "definition");
+					}
+					gApp.ShowFindResults(true);
+					return;
+				}
+
 				gApp.Fail("Unable to locate definition");
 				Close();
 			}
@@ -759,15 +811,19 @@ namespace IDE.ui
 
         void Dispose()
         {
+			if (mDisposed)
+				return;
+			mDisposed = true;
+
 			bool hadChange = (mKind == Kind.Rename) && (mNewReplaceStr != mOrigReplaceStr);
 
-			mSourceViewPanel.CancelResolve(.GetSymbolInfo);
-            if (mPassInstance != null)
+			mSourceViewPanel?.CancelResolve(.GetSymbolInfo);
+            if ((mPassInstance != null) || (mResolvePassData != null))
             {
 				StopWork();
 
                 var bfSystem = IDEApp.sApp.mBfResolveSystem;
-				if (mDoLock)
+				if ((mDoLock) && (bfSystem != null))
                 	bfSystem.Unlock();
 
 				Debug.Assert(!mUsingResolvePassData);
@@ -868,6 +924,9 @@ namespace IDE.ui
         {
             base.Update();
 
+			if (mClosed)
+				return;
+
 			if (gApp.mBfResolveCompiler == null)
 			{
 				Close();
@@ -947,7 +1006,8 @@ namespace IDE.ui
 
 			mClosed = true;
 
-			mSourceViewPanel.CancelResolve((mKind == .GoToDefinition) ? .GoToDefinition : .GetSymbolInfo);
+			if (mSourceViewPanel != null)
+				mSourceViewPanel.CancelResolve((mKind == .GoToDefinition) ? .GoToDefinition : .GetSymbolInfo);
 			if (mBackgroundKind != .None)
 			{
 				gApp.mBfResolveCompiler.CancelBackground();
@@ -956,16 +1016,21 @@ namespace IDE.ui
 
             if (mParent != null)
                 RemoveSelf();
-			if (mKind == .Rename)
+			if ((mKind == .Rename) && (mSourceViewPanel != null))
 				mSourceViewPanel.QueueFullRefresh(false);
-            mSourceViewPanel.mRenameSymbolDialog = null;
+			if (mSourceViewPanel != null)
+            	mSourceViewPanel.mRenameSymbolDialog = null;
             IDEApp.sApp.mSymbolReferenceHelper = null;
             Dispose();
+			mSourceViewPanel = null;
 			BFApp.sApp.DeferDelete(this);
         }
 
         public override void Draw(Graphics g)
         {
+			if (mClosed)
+				return;
+
             if (mKind == Kind.ShowFileReferences)
                 return;
 

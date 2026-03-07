@@ -9457,7 +9457,7 @@ BfTypedValue BfExprEvaluator::MatchConstructor(BfAstNode* targetSrc, BfMethodBou
 				if (ctorDecl != NULL)
 					autoComplete->SetDefinitionLocation(ctorDecl->mThisToken, true);
 				else if (resolvedTypeInstance->mTypeDef->mTypeDeclaration != NULL)
-					autoComplete->SetDefinitionLocation(resolvedTypeInstance->mTypeDef->mTypeDeclaration->mNameNode, true);
+					autoComplete->SetDefinitionLocation(resolvedTypeInstance->mTypeDef, true);
 			}
 		}
 		else if ((autoComplete->mResolveType == BfResolveType_GetResultString) && (autoComplete->IsAutocompleteNode(targetSrc)) &&
@@ -23084,7 +23084,7 @@ void BfExprEvaluator::DoMemberReference(BfMemberReferenceExpression* memberRefEx
 					(autoComplete->mDefProp == NULL) && (expectingTypeInst->mTypeDef->mTypeDeclaration != NULL))
 				{
 					autoComplete->mDefType = expectingTypeInst->mTypeDef;
-					autoComplete->SetDefinitionLocation(expectingTypeInst->mTypeDef->mTypeDeclaration->mNameNode);
+					autoComplete->SetDefinitionLocation(expectingTypeInst->mTypeDef);
 				}
 			}
 		}

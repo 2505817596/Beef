@@ -191,6 +191,7 @@ public:
 	String mResultString;
 	String mDocumentationEntryName;
 	BfAstNode* mGetDefinitionNode;
+	Array<BfAstNode*> mGetDefinitionNodes;
 	BfResolveType mResolveType;
 	BfTypeInstance* mShowAttributeProperties;
 	BfAstNode* mIdentifierUsed;
@@ -222,6 +223,7 @@ public:
 	bool IsAutocompleteLineNode(BfAstNode* node);
 	BfTypedValue LookupTypeRefOrIdentifier(BfAstNode* node, bool* isStatic, BfEvalExprFlags evalExprFlags = BfEvalExprFlags_None, BfType* expectingType = NULL);
 	void SetDefinitionLocation(BfAstNode* astNode, bool force = false);
+	void SetDefinitionLocation(BfTypeDef* typeDef, bool force = false);
 	bool IsAttribute(BfTypeInstance* typeInst);
 	void AddMethod(BfTypeInstance* typeInstance, BfMethodDef* methodDef, BfMethodInstance* methodInstance, BfMethodDeclaration* methodDecl, const StringImpl& methodName, const StringImpl& filter);
 	void AddField(BfTypeInstance* typeInst, BfFieldDef* fieldDef, BfFieldInstance* fieldInstance, const StringImpl& filter);

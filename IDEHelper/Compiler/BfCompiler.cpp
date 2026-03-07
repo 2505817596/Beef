@@ -4741,7 +4741,7 @@ void BfCompiler::ProcessAutocompleteTempType()
 			{
 				autoComplete->AddTopLevelNamespaces(tempTypeDef->mTypeDeclaration->mNameNode);
 				autoComplete->AddTopLevelTypes(tempTypeDef->mTypeDeclaration->mNameNode);
-				autoComplete->SetDefinitionLocation(actualTypeDef->mTypeDeclaration->mNameNode);
+				autoComplete->SetDefinitionLocation(actualTypeDef);
 			}
 			else
 				autoComplete->SetDefinitionLocation(refNode);
@@ -8445,20 +8445,22 @@ void BfCompiler::GenerateAutocompleteInfo()
 						autoComplete->SetDefinitionLocation(methodDef->GetMethodDeclaration()->mNameNode);
 				}
 				else // Just select type then
-					autoComplete->SetDefinitionLocation(typeInst->mTypeDef->mTypeDeclaration->mNameNode);
+					autoComplete->SetDefinitionLocation(typeInst->mTypeDef);
 			}
 		}
 
-		if (autoComplete->mGetDefinitionNode != NULL)
+		if (!autoComplete->mGetDefinitionNodes.IsEmpty())
 		{
-			auto astNode = autoComplete->mGetDefinitionNode;
-			auto bfSource = autoComplete->mGetDefinitionNode->GetSourceData()->ToParserData();
-			if (bfSource != NULL)
+			for (auto astNode : autoComplete->mGetDefinitionNodes)
 			{
-				int line = 0;
-				int lineChar = 0;
-				bfSource->GetLineCharAtIdx(astNode->GetSrcStart(), line, lineChar);
-				autoCompleteResultString += StrFormat("defLoc\t%s\t%d\t%d\n", bfSource->mFileName.c_str(), line, lineChar);
+				auto bfSource = astNode->GetSourceData()->ToParserData();
+				if (bfSource != NULL)
+				{
+					int line = 0;
+					int lineChar = 0;
+					bfSource->GetLineCharAtIdx(astNode->GetSrcStart(), line, lineChar);
+					autoCompleteResultString += StrFormat("defLoc\t%s\t%d\t%d\n", bfSource->mFileName.c_str(), line, lineChar);
+				}
 			}
 		}
 

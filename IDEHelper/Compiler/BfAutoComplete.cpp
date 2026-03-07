@@ -204,6 +204,7 @@ BfAutoComplete::BfAutoComplete(BfResolveType resolveType, bool doFuzzyAutoComple
 	mDoFuzzyAutoComplete = doFuzzyAutoComplete;
 
 	mGetDefinitionNode = NULL;
+	mGetDefinitionNodes.Clear();
 	mShowAttributeProperties = NULL;
 	mIdentifierUsed = NULL;
 
@@ -528,9 +529,45 @@ void BfAutoComplete::SetDefinitionLocation(BfAstNode* astNode, bool force)
 {
 	if (mIsGetDefinition)
 	{
-		if ((mGetDefinitionNode == NULL) || (force))
+		if (force)
+		{
 			mGetDefinitionNode = astNode;
+			mGetDefinitionNodes.Clear();
+		}
+		if (mGetDefinitionNode == NULL)
+			mGetDefinitionNode = astNode;
+		if (astNode != NULL)
+		{
+			for (auto checkNode : mGetDefinitionNodes)
+				if (checkNode == astNode)
+					return;
+			mGetDefinitionNodes.Add(astNode);
+		}
 	}
+}
+
+void BfAutoComplete::SetDefinitionLocation(BfTypeDef* typeDef, bool force)
+{
+	if ((!mIsGetDefinition) || (typeDef == NULL))
+		return;
+
+	typeDef = typeDef->GetDefinition();
+	if ((typeDef->mIsCombinedPartial) && (!typeDef->mPartials.empty()))
+	{
+		bool isFirst = true;
+		for (auto partialTypeDef : typeDef->mPartials)
+		{
+			if ((partialTypeDef->mTypeDeclaration != NULL) && (partialTypeDef->mTypeDeclaration->mNameNode != NULL))
+			{
+				SetDefinitionLocation(partialTypeDef->mTypeDeclaration->mNameNode, force && isFirst);
+				isFirst = false;
+			}
+		}
+		return;
+	}
+
+	if ((typeDef->mTypeDeclaration != NULL) && (typeDef->mTypeDeclaration->mNameNode != NULL))
+		SetDefinitionLocation(typeDef->mTypeDeclaration->mNameNode, force);
 }
 
 bool BfAutoComplete::IsAttribute(BfTypeInstance* typeInst)
@@ -631,7 +668,7 @@ void BfAutoComplete::AddTypeDef(BfTypeDef* typeDef, const StringImpl& filter, bo
 	{
 		if ((mIsGetDefinition) && (name == filter + "Attribute"))
 		{
-			SetDefinitionLocation(typeDef->mTypeDeclaration->mNameNode);
+			SetDefinitionLocation(typeDef);
 			return;
 		}
 
@@ -1589,7 +1626,7 @@ void BfAutoComplete::AddTopLevelTypes(BfAstNode* identifierNode, bool onlyAttrib
 			else
 				showTypeInst = showType->ToTypeInstance();
 			if (showTypeInst != NULL)
-				SetDefinitionLocation(showTypeInst->mTypeDef->mTypeDeclaration->mNameNode);
+				SetDefinitionLocation(showTypeInst->mTypeDef);
 		}
 	}
 
@@ -3165,8 +3202,7 @@ void BfAutoComplete::CheckVarResolution(BfAstNode* varTypeRef, BfType* resolvedT
 			auto typeInst = resolvedType->ToTypeInstance();
 			if (typeInst != NULL)
 			{
-				if (typeInst->mTypeDef->mTypeDeclaration != NULL)
-					SetDefinitionLocation(typeInst->mTypeDef->mTypeDeclaration->mNameNode);
+				SetDefinitionLocation(typeInst->mTypeDef);
 			}
 		}
 

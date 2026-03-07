@@ -490,6 +490,8 @@ namespace IDE.ui
 		String mQueuedLocation ~ delete _;
         bool mWantsClassifyAutocomplete;
 		bool mWantsCurrentLocation;
+		bool mWantsGoToDefinition;
+		int32 mQueuedGoToDefinitionCursorPos = -1;
         public bool mIsPerformingBackgroundClassify;
         public bool mClassifyPaused = false;        
         public bool mUseDebugKeyboard;
@@ -522,6 +524,7 @@ namespace IDE.ui
         PanelHeader mPanelHeader;
         NavigationBar mNavigationBar;
         public SymbolReferenceHelper mRenameSymbolDialog;
+		public PanelPopup mDefinitionSelectionPopup;
         public int32 mBackgroundDelay = 0;
 		public Monitor mMonitor = new Monitor() ~ delete _;
 		bool mDidSpellCheck;
@@ -710,6 +713,133 @@ namespace IDE.ui
 			}
 		}
 
+		static bool AutoComplete_IsDeclarationModifier(String word)
+		{
+			return (word == "public") ||
+				(word == "private") ||
+				(word == "protected") ||
+				(word == "internal") ||
+				(word == "static") ||
+				(word == "readonly") ||
+				(word == "const") ||
+				(word == "volatile") ||
+				(word == "virtual") ||
+				(word == "override") ||
+				(word == "abstract") ||
+				(word == "extern") ||
+				(word == "partial") ||
+				(word == "mut") ||
+				(word == "ref") ||
+				(word == "out") ||
+				(word == "params") ||
+				(word == "append") ||
+				(word == "new") ||
+				(word == "sealed");
+		}
+
+		static bool AutoComplete_IsDeclarationStopWord(String word)
+		{
+			return (word == "return") ||
+				(word == "throw") ||
+				(word == "case") ||
+				(word == "goto") ||
+				(word == "if") ||
+				(word == "else") ||
+				(word == "for") ||
+				(word == "while") ||
+				(word == "switch") ||
+				(word == "catch") ||
+				(word == "finally") ||
+				(word == "do") ||
+				(word == "try") ||
+				(word == "typeof") ||
+				(word == "sizeof") ||
+				(word == "nameof");
+		}
+
+		bool IsTypingDeclarationName()
+		{
+			var editWidgetContent = (SourceEditWidgetContent)mEditWidget.Content;
+			let data = editWidgetContent.mData;
+			int32 cursorPos = (.)editWidgetContent.CursorTextPos;
+			if ((cursorPos <= 0) || (cursorPos > data.mTextLength))
+				return false;
+
+			int32 tokenStart = cursorPos;
+			while (tokenStart > 0)
+			{
+				char32 c = data.mText[tokenStart - 1].mChar;
+				if ((!AutoComplete.IsIdentifierChar(c)) && (c != '@'))
+					break;
+				tokenStart--;
+			}
+			if (tokenStart == cursorPos)
+				return false;
+
+			int32 prevIdx = tokenStart - 1;
+			while ((prevIdx >= 0) && data.mText[prevIdx].mChar.IsWhiteSpace)
+				prevIdx--;
+			if (prevIdx < 0)
+				return false;
+
+			char32 prevChar = data.mText[prevIdx].mChar;
+			if (prevChar == '.')
+				return false;
+			if ((prevChar == ':') && (prevIdx > 0) && (data.mText[prevIdx - 1].mChar == ':'))
+				return false;
+			if ((prevChar == '>') && (prevIdx > 0) && (data.mText[prevIdx - 1].mChar == '-'))
+				return false;
+
+			int32 nextIdx = cursorPos;
+			while ((nextIdx < data.mTextLength) && data.mText[nextIdx].mChar.IsWhiteSpace)
+			{
+				if (data.mText[nextIdx].mChar == '\n')
+					break;
+				nextIdx++;
+			}
+			if (nextIdx < data.mTextLength)
+			{
+				char32 nextChar = data.mText[nextIdx].mChar;
+				if ((nextChar != ';') && (nextChar != '=') && (nextChar != ',') && (nextChar != '(') && (nextChar != '{') && (nextChar != '\n'))
+					return false;
+			}
+
+			bool sawNonModifierWord = false;
+			String word = scope .();
+			while (prevIdx >= 0)
+			{
+				char32 c = data.mText[prevIdx].mChar;
+				if (AutoComplete.IsIdentifierChar(c))
+				{
+					int32 wordEnd = prevIdx + 1;
+					while ((prevIdx >= 0) && AutoComplete.IsIdentifierChar(data.mText[prevIdx].mChar))
+						prevIdx--;
+					word.Clear();
+					for (int32 wordIdx = prevIdx + 1; wordIdx < wordEnd; wordIdx++)
+						word.Append(data.mText[wordIdx].mChar);
+					if (AutoComplete_IsDeclarationStopWord(word))
+						return false;
+					if (!AutoComplete_IsDeclarationModifier(word))
+						sawNonModifierWord = true;
+					continue;
+				}
+
+				if (c.IsWhiteSpace || (c == '<') || (c == '>') || (c == ',') || (c == '.') || (c == ':') ||
+					(c == '*') || (c == '&') || (c == '?') || (c == '[') || (c == ']'))
+				{
+					prevIdx--;
+					continue;
+				}
+
+				if ((c == ';') || (c == '{') || (c == '(') || (c == '}') || (c == '\n'))
+					break;
+
+				return false;
+			}
+
+			return sawNonModifierWord;
+		}
+
 		void DoAutoComplete(char32 keyChar, SourceEditWidgetContent.AutoCompleteOptions options)
 		{
 			var editWidgetContent = (SourceEditWidgetContent)mEditWidget.Content;
@@ -732,6 +862,13 @@ namespace IDE.ui
 
 			if (ResolveCompiler == null)
 				return;
+
+			if ((!options.HasFlag(.UserRequested)) && (!options.HasFlag(.OnlyShowInvoke)) && IsTypingDeclarationName())
+			{
+				CloseAutocomplete();
+				CancelAutocomplete();
+				return;
+			}
 
 			if (ResolveCompiler.mThreadWorkerHi.mThreadRunning)
 			{
@@ -777,11 +914,15 @@ namespace IDE.ui
 
 		public void CancelResolve(ResolveType resolveType)
 		{
-			for (var resolveResults in mDeferredResolveResults)
+			using (mMonitor.Enter())
 			{
-				if (resolveResults.mResolveType == resolveType)
+				for (int resolveResultIdx < mDeferredResolveResults.Count)
 				{
-					resolveResults.mCancelled = true;
+					var resolveResults = mDeferredResolveResults[resolveResultIdx];
+					if (resolveResults.mResolveType == resolveType)
+					{
+						resolveResults.mCancelled = true;
+					}
 				}
 			}
 		}
@@ -1138,10 +1279,10 @@ namespace IDE.ui
 			if (resolveParams != null)
 				resolveParams.mResolveType = resolveType;
 
-			/*if (mWidgetWindow.IsKeyDown(.Control))
-			{
-				NOP!();
-			}*/
+            /*if (mWidgetWindow.IsKeyDown(.Control))
+            {
+                NOP!();
+            }*/
 			//Debug.WriteLine("Classify {0} {1}", this, resolveType);
 
 			scope AutoBeefPerf("SourceViewPanel.Classify");
@@ -1355,20 +1496,15 @@ namespace IDE.ui
             {
 				ProcessDeferredResolveResults(0);
 
-				var resolveParams;
-				if (resolveParams == null)
+				ResolveParams useResolveParams = resolveParams;
+				bool ownsResolveParams = false;
+				if (useResolveParams == null)
 				{
-					resolveParams = new ResolveParams();
+					useResolveParams = new ResolveParams();
+					ownsResolveParams = true;
 				}
+				FindEmbeds(useResolveParams);
 
-				FindEmbeds(resolveParams);
-
-				resolveParams.mResolveType = resolveType;
-				if (useResolveType.IsClassify)
-					resolveParams.mClassifyGeneration = ++mClassifyGeneration;
-				resolveParams.mWaitEvent = new WaitEvent();
-				resolveParams.mInDeferredList = true;
-				mDeferredResolveResults.Add(resolveParams);
 
 				var autoComplete = GetAutoComplete();
 				if ((autoComplete != null) && (autoComplete.mIsDocumentationPass))
@@ -1380,7 +1516,7 @@ namespace IDE.ui
 						(listWidget.mSelectIdx < listWidget.mEntryList.Count))
 					{
 						let selectedEntry = listWidget.mEntryList[listWidget.mSelectIdx];
-						resolveParams.mDocumentationName = new String(selectedEntry.mEntryDisplay);
+						useResolveParams.mDocumentationName = new String(selectedEntry.mEntryDisplay);
 					}
 					else
 					{
@@ -1389,58 +1525,79 @@ namespace IDE.ui
 						autoComplete.mIsDocumentationPass = false;
 					}
 				}
-				resolveParams.mTextVersion = Content.mData.mCurTextVersionId;
+				useResolveParams.mTextVersion = Content.mData.mCurTextVersionId;
+                compiler.CheckThreadDone(); // Process any pending thread done callbacks
 
-				compiler.CheckThreadDone(); // Process any pending thread done callbacks
+				useResolveParams.mResolveType = resolveType;
+				if (useResolveType.IsClassify)
+					useResolveParams.mClassifyGeneration = ++mClassifyGeneration;
 
 				bool isHi = (resolveType != .ClassifyFullRefresh) && (resolveType != .Classify);
-				if (isHi)
+				if ((isHi) && (bfCompiler.mThreadWorkerHi.mThreadRunning))
 				{
-					Debug.Assert(!bfCompiler.mThreadWorkerHi.mThreadRunning);
+					compiler.RequestFastFinish();
+					compiler.CheckThreadDone();
+					if (bfCompiler.mThreadWorkerHi.mThreadRunning)
+					{
+						if (resolveType == .GoToDefinition)
+						{
+							int32 cursorPos = useResolveParams.mOverrideCursorPos;
+							if (cursorPos == -1)
+								cursorPos = (.)ewc.CursorTextPos;
+							mQueuedGoToDefinitionCursorPos = cursorPos;
+							mWantsGoToDefinition = true;
+							if (ownsResolveParams)
+								delete useResolveParams;
+							return true;
+						}
+						Debug.Assert(!bfCompiler.mThreadWorkerHi.mThreadRunning);
+					}
 				}
-				else
+				else if ((!isHi) && (bfCompiler.mThreadWorker.mThreadRunning))
 					Debug.Assert(!bfCompiler.mThreadWorker.mThreadRunning);
 
+				useResolveParams.mWaitEvent = new WaitEvent();
+				useResolveParams.mInDeferredList = true;
+				mDeferredResolveResults.Add(useResolveParams);
                 if (bfSystem != null)
                     bfSystem.PerfZoneStart("DoBackground");
-				//ProcessResolveData();
 
 				//sbool hasFocus = mEditWidget.mHasFocus;
 
 				//Debug.Assert(mProcessResolveCharData == null);
-                DuplicateEditState(out resolveParams.mCharData, out resolveParams.mCharIdSpan);
+                DuplicateEditState(out useResolveParams.mCharData, out useResolveParams.mCharIdSpan);
 				//Debug.WriteLine("Edit State: {0}", mProcessResolveCharData);
 
 				/*if (hasFocus)
 				{
 	                if ((useResolveType == .Autocomplete) || (useResolveType == .GetSymbolInfo) || (mIsClang))
 					{
-						resolveParams.mOverrideCursorPos = (.)mEditWidget.Content.CursorTextPos;
+						useResolveParams.mOverrideCursorPos = (.)mEditWidget.Content.CursorTextPos;
 						/*if (useResolveType == .Autocomplete)
-							resolveParams.mOverrideCursorPos--;*/
+							useResolveParams.mOverrideCursorPos--;*/
 					}
 				}*/
 
-				resolveParams.mEditWidgetContent = ewc;
-				if (resolveParams.mOverrideCursorPos == -1)
-					resolveParams.mOverrideCursorPos = (.)ewc.CursorTextPos;
+				useResolveParams.mEditWidgetContent = ewc;
+				if (useResolveParams.mOverrideCursorPos == -1)
+					useResolveParams.mOverrideCursorPos = (.)ewc.CursorTextPos;
 
-				if (ewc.HasTextCursorBefore(resolveParams.mOverrideCursorPos))
+				if (ewc.HasTextCursorBefore(useResolveParams.mOverrideCursorPos))
 				{
-					resolveParams.mCursorTextPosition = new .(resolveParams.mOverrideCursorPos);
-					ewc.PersistentTextPositions.Add(resolveParams.mCursorTextPosition);
+					useResolveParams.mCursorTextPosition = new .(useResolveParams.mOverrideCursorPos);
+					ewc.PersistentTextPositions.Add(useResolveParams.mCursorTextPosition);
 				}
                     
                 //Debug.Assert(mCurParser == null);
                 
                 if ((mIsBeefSource) && (hasValidProjectSource) && (!isHi))
-                    resolveParams.mParser = bfSystem.FindParser(projectSource);
+                    useResolveParams.mParser = bfSystem.FindParser(projectSource);
                 //if (mCurParser != null)
                 {
 					if (gApp.mWorkspace.mProjectLoadState != .Loaded)
 					{
-						resolveParams.mCancelled = true;
-						resolveParams.mWaitEvent.Set(true);
+						useResolveParams.mCancelled = true;
+						useResolveParams.mWaitEvent.Set(true);
 						return true;
 					}
 
@@ -1453,12 +1610,12 @@ namespace IDE.ui
 
 					if (useResolveType == .Autocomplete)
 					{
-						//Debug.WriteLine($"DoBackground {useResolveType} CursorPos:{resolveParams.mOverrideCursorPos}");
+						//Debug.WriteLine($"DoBackground {useResolveType} CursorPos:{useResolveParams.mOverrideCursorPos}");
 					}
 
                     if (useResolveType == .Autocomplete)
-                        compiler.DoBackgroundHi(new () => { DoClassify(.Autocomplete, resolveParams, true); }, new => ClassifyThreadDone);
-						//BackgroundResolve(new () => { DoClassify(.Autocomplete, resolveParams); });
+                        compiler.DoBackgroundHi(new () => { DoClassify(.Autocomplete, useResolveParams, true); }, new => ClassifyThreadDone);
+						//BackgroundResolve(new () => { DoClassify(.Autocomplete, useResolveParams); });
                     else if (useResolveType == .ClassifyFullRefresh)
 					{
 						if ((mProjectSource?.mLoadFailed == true) && (!mLoadFailed))
@@ -1469,18 +1626,18 @@ namespace IDE.ui
 						// To avoid "flashing" on proper colorization vs FastClassify, we wait a bit for the proper classifying to finish
 						//  on initial show
 						int maxWait = (mUpdateCnt <= 1) ? 50 : 0;
-                        compiler.DoBackground(new () => { DoClassify(.ClassifyFullRefresh, resolveParams, false); },
+                        compiler.DoBackground(new () => { DoClassify(.ClassifyFullRefresh, useResolveParams, false); },
 							new () =>
 							{
 								ClassifyThreadDone();
 							}, maxWait);
 					}
                     else if (useResolveType == .GetCurrentLocation)
-						compiler.DoBackgroundHi(new () => { DoClassify(.GetCurrentLocation, resolveParams, true); }, new => ClassifyThreadDone);
+						compiler.DoBackgroundHi(new () => { DoClassify(.GetCurrentLocation, useResolveParams, true); }, new => ClassifyThreadDone);
 					else if (useResolveType == .GetSymbolInfo)
-						compiler.DoBackgroundHi(new () => { DoClassify(.GetSymbolInfo, resolveParams, true); }, new => ClassifyThreadDone);
+						compiler.DoBackgroundHi(new () => { DoClassify(.GetSymbolInfo, useResolveParams, true); }, new => ClassifyThreadDone);
 					else 
-                        compiler.DoBackgroundHi(new () => { DoFullClassify(resolveParams); }, new => ClassifyThreadDone);
+                        compiler.DoBackgroundHi(new () => { DoFullClassify(useResolveParams); }, new => ClassifyThreadDone);
                 }
                 /*else
                 {
@@ -1697,12 +1854,19 @@ namespace IDE.ui
 			}
 		}
 
-        void HandleAutocompleteInfo(ResolveType resolveType, String autocompleteInfo, bool clearList, bool changedAfterInfo, int32 textPosOffset = 0, bool onlyShowInvoke = false)
+        void HandleAutocompleteInfo(ResolveType resolveType, String autocompleteInfo, bool clearList, bool changedAfterInfo, int32 textPosOffset = 0, bool onlyShowInvoke = false, bool isUserRequested = false)
         {
             var editWidgetContent = (SourceEditWidgetContent)mEditWidget.Content;
 
 			if (mWidgetWindow == null)
 				return;
+
+			if ((!isUserRequested) && (!onlyShowInvoke) && IsTypingDeclarationName())
+			{
+				if (editWidgetContent.mAutoComplete != null)
+					editWidgetContent.mAutoComplete.Close();
+				return;
+			}
 
             bool wantOpen = (autocompleteInfo.Length > 0);
             if ((editWidgetContent.mAutoComplete != null) && (editWidgetContent.mAutoComplete.mIsAsync) &&
@@ -1753,6 +1917,7 @@ namespace IDE.ui
 				// Keep the current member list alive and re-filter locally instead of closing immediately.
 				var autoComplete = editWidgetContent.mAutoComplete;
 				if ((autoComplete.mAutoCompleteListWidget != null) &&
+					(autoComplete.mIsMember) &&
 					(!autoComplete.mAutoCompleteListWidget.mFullEntryList.IsEmpty))
 				{
 					AutoComplete.Trace("SVP.HandleAutocompleteInfo EMPTY -> UpdateAsyncInfo");
@@ -1984,22 +2149,78 @@ namespace IDE.ui
 				if (!resolveParams.mCancelled)
 			    	gApp.mSymbolReferenceHelper?.SetSymbolInfo(autocompleteInfo);
 			}
-			else if (resolveType == ResolveType.GoToDefinition)
-			{
-				if (!resolveParams.mCancelled)
-					gApp.mSymbolReferenceHelper?.SetSymbolInfo(autocompleteInfo);
-			    /*var autocompleteLines = String.StackSplit!(autocompleteInfo, '\n');
-			    for (var autocompleteLine in autocompleteLines)
-			    {
-			        var lineData = String.StackSplit!(autocompleteLine, '\t');
-			        if (scope String(lineData[0]) == "defLoc")
-			        {
-			            resolveParams.mOutLine = int32.Parse(lineData[2]);
-			            resolveParams.mOutLineChar = int32.Parse(lineData[3]);
-			            resolveParams.mOutFileName = new String(lineData[1]);
-			        }
-			    }*/
-			}
+            else if (resolveType == ResolveType.GoToDefinition)
+            {
+                if (!resolveParams.mCancelled)
+                {
+                    List<StringView> defLocationFilePaths = scope .();
+                    List<int32> defLocationLines = scope .();
+                    List<int32> defLocationLineChars = scope .();
+
+                    for (var autocompleteLine in autocompleteInfo.Split('\n'))
+                    {
+                        var lineData = autocompleteLine.Split('\t');
+                        if (lineData.GetNext().Get() == "defLoc")
+                        {
+                            StringView filePath = lineData.GetNext().Get();
+                            int32 line = int32.Parse(lineData.GetNext().Get());
+                            int32 lineChar = int32.Parse(lineData.GetNext().Get());
+
+                            bool isDup = false;
+                            for (int defLocationIdx < defLocationFilePaths.Count)
+                            {
+                                if ((defLocationLines[defLocationIdx] == line) && (defLocationLineChars[defLocationIdx] == lineChar) &&
+                                    (String.Equals(scope String(defLocationFilePaths[defLocationIdx]), scope String(filePath), Environment.IsFileSystemCaseSensitive ? .Ordinal : .OrdinalIgnoreCase)))
+                                {
+                                    isDup = true;
+                                    break;
+                                }
+                            }
+
+                            if (!isDup)
+                            {
+                                defLocationFilePaths.Add(filePath);
+                                defLocationLines.Add(line);
+                                defLocationLineChars.Add(lineChar);
+                            }
+                        }
+                    }
+
+                    if (defLocationFilePaths.Count == 1)
+                    {
+                        delete resolveParams.mOutFileName;
+                        resolveParams.mOutFileName = new .(defLocationFilePaths[0]);
+                        resolveParams.mOutLine = defLocationLines[0];
+                        resolveParams.mOutLineChar = defLocationLineChars[0];
+
+                        RecordHistoryLocation();
+
+                        var usePath = scope String(defLocationFilePaths[0]);
+                        if (usePath.StartsWith("$Emit$"))
+                            usePath.Insert("$Emit$".Length, "Resolve$");
+
+                        DeleteAndNullify!(gApp.mDeferredShowSource);
+                        gApp.mDeferredShowSource = new IDEApp.DeferredShowSource()
+                            {
+                                mFilePath = new .(usePath),
+                                mShowHotIdx = -1,
+                                mRefHotIdx = -1,
+                                mLine = defLocationLines[0],
+                                mColumn = defLocationLineChars[0],
+                                mHilitePosition = LocatorType.Smart,
+                                mShowTemp = true
+                            };
+                    }
+                    else if (defLocationFilePaths.Count > 1)
+                    {
+                        ShowDefinitionSelectionPopup(defLocationFilePaths, defLocationLines, defLocationLineChars);
+                    }
+                    else if (gApp.mBfResolveCompiler.HasResolvedAll())
+                    {
+                        gApp.Fail("Unable to locate definition");
+                    }
+                }
+            }
 			else if (resolveType == ResolveType.GetNavigationData)
 			{
 			    resolveParams.mNavigationData = new String(autocompleteInfo);
@@ -2034,7 +2255,7 @@ namespace IDE.ui
 					var autoComplete = GetAutoComplete();
 					if ((autoComplete != null) && (resolveParams != null))
 						autoComplete.mIsDocumentationPass = resolveParams.mDocumentationName != null;
-				    HandleAutocompleteInfo(resolveType, autocompleteInfo, true, changedAfterInfo, textPosOffset, resolveParams?.mOnlyShowInvoke ?? false);
+				    HandleAutocompleteInfo(resolveType, autocompleteInfo, true, changedAfterInfo, textPosOffset, resolveParams?.mOnlyShowInvoke ?? false, resolveParams?.mIsUserRequested ?? false);
 					autoComplete = GetAutoComplete();
 					if (autoComplete != null)
 					{
@@ -2047,6 +2268,32 @@ namespace IDE.ui
 				}
 			}
 		}
+
+
+        void ShowDefinitionSelectionPopup(List<StringView> defLocationFilePaths, List<int32> defLocationLines, List<int32> defLocationLineChars)
+        {
+            mDefinitionSelectionPopup?.Close();
+
+            var definitionSelectionPanel = new DefinitionSelectionPanel(this);
+            for (int defLocationIdx < defLocationFilePaths.Count)
+                definitionSelectionPanel.AddEntry(defLocationFilePaths[defLocationIdx], defLocationLines[defLocationIdx], defLocationLineChars[defLocationIdx]);
+
+            float popupX;
+            float popupY;
+            mEditWidget.Content.GetTextCoordAtCursor(out popupX, out popupY);
+
+            PanelPopup panelPopup = new .();
+            panelPopup.mWindowFlags = .ClientSized | .DestAlpha | .PopupPosition;
+            mDefinitionSelectionPopup = panelPopup;
+            definitionSelectionPanel.mPopup = panelPopup;
+            panelPopup.Init(definitionSelectionPanel, mEditWidget.Content, popupX + GS!(12), popupY + GS!(26), GS!(380), definitionSelectionPanel.GetDesiredHeight());
+            panelPopup.mOnRemovedFromParent.Add(new (widget, prevParent, widgetWindow) =>
+                {
+                    if (mDefinitionSelectionPopup == panelPopup)
+                        mDefinitionSelectionPopup = null;
+                });
+            definitionSelectionPanel.mListView.SetFocus();
+        }
 
         // fullRefresh means we rebuild types even if the hashes haven't changed - this is required for
         //  a classifier pass on a newly-opened file
@@ -2252,6 +2499,7 @@ namespace IDE.ui
 			bool doFuzzyAutoComplete = resolveParams?.mDoFuzzyAutoComplete ?? false;
 
 			var resolvePassData = parser.CreateResolvePassData(resolveType, doFuzzyAutoComplete);
+			defer delete resolvePassData;
 			if (resolveParams != null)
 			{
 			    if (resolveParams.mLocalId != -1)
@@ -2415,7 +2663,6 @@ namespace IDE.ui
 
             if (!isBackground)            
                 bfSystem.PerfZoneStart("Cleanup");
-            delete resolvePassData;
 
             if ((!isBackground) || (isFastClassify))
             {
@@ -2812,6 +3059,13 @@ namespace IDE.ui
 			if (mDisposed)
 				return;
 
+            mDisposed = true;
+            mWantsGoToDefinition = false;
+            mQueuedGoToDefinitionCursorPos = -1;
+            mDefinitionSelectionPopup?.Close();
+            CancelResolve(.GoToDefinition);
+            CancelResolve(.GetCurrentLocation);
+
 			if (mProjectSource?.mEditData?.HasTextChanged() == true)
 			{
 				mProjectSource.ClearEditData();
@@ -2846,12 +3100,11 @@ namespace IDE.ui
 
             DebugManager debugManager = IDEApp.sApp.mDebugger;
             debugManager.mBreakpointsChangedDelegate.Remove(scope => BreakpointsChanged, true);
-
 #if IDE_C_SUPPORT
             if (mIsClang)
             {
                 var clangCompiler = ClangResolveCompiler;
-                clangCompiler.QueueFileRemoved(mFilePsath);                
+                clangCompiler.QueueFileRemoved(mFilePath);                
             }
 #endif
 
@@ -2870,7 +3123,6 @@ namespace IDE.ui
 				IDEApp.sApp.mSpellChecker.CancelBackground();
 				Debug.Assert(mSpellCheckJobCount == 0);
 			}
-
             if (mRenameSymbolDialog != null)
                 mRenameSymbolDialog.Close();
 
@@ -3027,8 +3279,15 @@ namespace IDE.ui
 			if (mHoverWatch != null)
 				mHoverWatch.Close();
 
+			mDefinitionSelectionPopup?.Close();
+
 			if (mRenameSymbolDialog != null)
-				mRenameSymbolDialog.Cancel();
+			{
+				if (mRenameSymbolDialog.mKind == .Rename)
+					mRenameSymbolDialog.Cancel();
+				else
+					mRenameSymbolDialog.Close();
+			}
 
 			if (mEditWidget != null)
 			{
@@ -7424,6 +7683,19 @@ namespace IDE.ui
 						canDoBackground = false;
 						mWantsCurrentLocation = false;
 					}
+				}
+
+				if ((mWantsGoToDefinition) && (compiler != null) && (!compiler.mThreadWorkerHi.mThreadRunning))
+				{
+					int32 queuedCursorPos = mQueuedGoToDefinitionCursorPos;
+					mWantsGoToDefinition = false;
+					mQueuedGoToDefinitionCursorPos = -1;
+					ResolveParams resolveParams = new .();
+					resolveParams.mOverrideCursorPos = queuedCursorPos;
+					Classify(ResolveType.GoToDefinition, resolveParams);
+					if (!resolveParams.mInDeferredList)
+						delete resolveParams;
+					canDoBackground = false;
 				}
 
 				if ((mQueuedLocation != null) && (!compiler.IsPerformingBackgroundOperation()))

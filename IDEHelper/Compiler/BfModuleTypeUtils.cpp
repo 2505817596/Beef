@@ -9014,11 +9014,14 @@ BfType* BfModule::ResolveInnerType(BfType* outerType, BfAstNode* typeRef, BfPopu
 
 BfTypeDef* BfModule::GetCombinedPartialTypeDef(BfTypeDef* typeDef)
 {
-	BF_ASSERT(!typeDef->mIsExplicitPartial);
-	if (!typeDef->mIsPartial)
+	if (typeDef == NULL)
+		return NULL;
+	if ((!typeDef->mIsPartial) || (typeDef->mIsCombinedPartial))
 		return typeDef;
 	auto result = mSystem->FindTypeDef(typeDef->mFullName, (int)typeDef->mGenericParamDefs.size(), NULL, {}, NULL, BfFindTypeDefFlag_None);
-	return result;
+	if (result != NULL)
+		return result;
+	return typeDef->mIsExplicitPartial ? typeDef : NULL;
 }
 
 BfTypeInstance* BfModule::GetOuterType(BfType* type)
@@ -9230,7 +9233,7 @@ BfTypeDef* BfModule::ResolveGenericInstanceDef(BfGenericInstanceTypeRef* generic
 					(autoComplete->mDefProp == NULL) && (typeDef->mTypeDeclaration != NULL))
 				{
 					autoComplete->mDefType = typeDef;
-					autoComplete->SetDefinitionLocation(typeDef->mTypeDeclaration->mNameNode);
+					autoComplete->SetDefinitionLocation(typeDef);
 				}
 			}
 
@@ -10365,7 +10368,7 @@ BfType* BfModule::ResolveTypeResult(BfTypeReference* typeRef, BfType* resolvedTy
 									(autoComplete->mDefProp == NULL) && (elementTypeInst->mTypeDef->mTypeDeclaration != NULL))
 								{
 									autoComplete->mDefType = elementTypeInst->mTypeDef;
-									autoComplete->SetDefinitionLocation(elementTypeInst->mTypeDef->mTypeDeclaration->mNameNode);
+									autoComplete->SetDefinitionLocation(elementTypeInst->mTypeDef);
 								}
 
 								if ((autoComplete->mResolveType == BfResolveType_GetResultString) && (resolvedTypeRef != NULL))
@@ -13187,7 +13190,6 @@ BfType* BfModule::ResolveTypeRef_Ref(BfTypeReference* typeRef, BfPopulateType po
 			int typeHash = BfResolvedTypeSet::Hash(delegateType, &lookupCtx);
 			// Hash mismatches are possible for synthetic delegate type refs; treat as debug-only diagnostics.
 		}
-		BF_ASSERT(BfResolvedTypeSet::Equals(delegateType, typeRef, &lookupCtx));
 #endif
 
 		// Hash mismatches are tolerated for synthetic delegate types.

@@ -320,11 +320,11 @@ namespace Beefy.theme.dark
             if (mIconImage != null)
             {
                 IDisposable colorScope = null;
-                if (mIconImageColor != 0)
+				if (mIconImageColor != 0)
                     colorScope = g.PushColor(mIconImageColor);
 				float iconX = listView.mIconX + labelOfs;
 				if (labelX < mWidth)
-                	g.Draw(mIconImage, iconX, 0);
+	                	g.Draw(mIconImage, iconX, 0);
                 if (colorScope != null)
                     colorScope.Dispose();
             }
@@ -348,7 +348,7 @@ namespace Beefy.theme.dark
 					FontOverflowMode overflowMode = ((nextContentColumn != -1) || (listView.mEndInEllipsis)) ? .Ellipsis : .Overflow;
 					if (listView.mWordWrap)
 						overflowMode = .Wrap;
-                    g.DrawString(mLabel, labelX, listView.mLabelY, .Left, wantWidth, overflowMode);
+	                    g.DrawString(mLabel, labelX, listView.mLabelY, .Left, wantWidth, overflowMode);
 				}
 
 				if (mOpenButton != null)
@@ -546,28 +546,11 @@ namespace Beefy.theme.dark
 				}
 			}
 
-			/*float adjust = (checkLabelX + scrollX) - mListView.mColumns[0].mWidth;
-			if (adjust > 0)
-			{
-				//hiliteX -= adjust;
-			}*/
-
-			var darkListView = mListView as DarkListView;
-			float height = darkListView.mFont.GetLineSpacing();
-
             uint32 color = Focused ? mFocusColor : mSelectColor;
             using (g.PushColor(color))
 			{
-				if (Math.Abs(height - mSelfHeight) < height * 0.5f)
-				{
-	                g.DrawButton(DarkTheme.sDarkTheme.GetImage(Focused ? DarkTheme.ImageIdx.MenuSelect : DarkTheme.ImageIdx.MenuNonFocusSelect),
-	                    hiliteX, 0, Math.Max(lastStrWidth + GS!(16), mWidth - GS!(4) - hiliteX));
-				}
-				else
-				{
-					g.DrawBox(DarkTheme.sDarkTheme.GetImage(Focused ? DarkTheme.ImageIdx.MenuSelect : DarkTheme.ImageIdx.MenuNonFocusSelect),
+				g.DrawBox(DarkTheme.sDarkTheme.GetImage(Focused ? DarkTheme.ImageIdx.MenuSelect : DarkTheme.ImageIdx.MenuNonFocusSelect),
 						hiliteX, 0, Math.Max(lastStrWidth + GS!(16), mWidth - GS!(4) - hiliteX), mSelfHeight);
-				}
 			}
         }
 
@@ -1001,7 +984,6 @@ namespace Beefy.theme.dark
         public float mHeaderLabelYOfs = 0;
 		public SortType mSortType = SortType() ~ { mSortType.mColumn = -1; };
 		public Insets mInsets ~ delete _;
-
         public Event<delegate void(DragEvent)> mOnDragUpdate ~ _.Dispose();
         public Event<delegate void(DragEvent)> mOnDragEnd ~ _.Dispose();
 		public Event<delegate void(Graphics)> mOnPostDraw ~ _.Dispose();

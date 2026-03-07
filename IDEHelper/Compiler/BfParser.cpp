@@ -74,11 +74,6 @@ static bool IsWhitespaceOrPunctuation(char c)
 
 BfParser* BfParserData::ToParser()
 {
-	if (mUniqueParser != NULL)
-	{
-		BF_ASSERT(mUniqueParser->mOrigSrcLength >= 0);
-		BF_ASSERT((mUniqueParser->mCursorIdx >= -1) || (mUniqueParser->mCursorIdx <= mUniqueParser->mOrigSrcLength));
-	}
 	return mUniqueParser;
 }
 
@@ -460,6 +455,10 @@ BfParser::BfParser(BfSystem* bfSystem, BfProject* bfProject) : BfSource(bfSystem
 BfParser::~BfParser()
 {
 	int parserCount = gParserCount--;
+	BfLogSys(mSystem, "BfParser::~BfParser start %p parserData:%p sourceRefCount:%d parserDataRef:%d\n", this, mParserData, mRefCount, (mParserData != NULL) ? mParserData->mRefCount : -999);
+
+	if ((mParserData != NULL) && (mParserData->mUniqueParser == this))
+		mParserData->mUniqueParser = NULL;
 
 	if (mParserData == NULL)
 	{
@@ -468,6 +467,7 @@ BfParser::~BfParser()
 	{
 		// Owned data, never intended for cache
 		mParserData->mSrc = NULL; // Count on BfSource dtor to release strc
+		BfLogSys(mSystem, "BfParser::~BfParser deleting unique parserData %p\n", mParserData);
 		delete mParserData;
 	}
 	else if (mParserData->mRefCount == 0)
@@ -475,10 +475,12 @@ BfParser::~BfParser()
 
 
 		// Just never got added to the cache
+		BfLogSys(mSystem, "BfParser::~BfParser deleting uncached parserData %p\n", mParserData);
 		delete mParserData;
 	}
 	else
 	{
+		BfLogSys(mSystem, "BfParser::~BfParser deref parserData %p ref:%d\n", mParserData, mParserData->mRefCount);
 		mParserData->Deref();
 	}
 
