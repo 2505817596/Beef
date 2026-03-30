@@ -255,6 +255,9 @@ namespace IDE.ui
 		public const uint32 C_ENTRY_TEXT = 0xFFD4D4D4;
 		public const uint32 C_ENTRY_MATCH = 0xFF1FA8FF;
 		public const uint32 C_ENTRY_KIND = 0xFF8E96A6;
+		public const uint32 C_BEEF_GREEN = 0xFF58C16F;
+		public const uint32 C_BEEF_GREEN_DARK = 0xFF163122;
+		public const uint32 C_BEEF_GREEN_TEXT = 0xFFEEF9F1;
 		public const uint32 C_ICON_METHOD = 0xFFC586C0;
 		public const uint32 C_ICON_FIELD = 0xFF75BEFF;
 		public const uint32 C_ICON_TYPE = 0xFFEE9D28;
@@ -782,6 +785,23 @@ namespace IDE.ui
 				if (curX - x >= maxWidth)
 					break;
 			}
+		}
+
+		public static float DrawBeefBadge(Graphics g, float x, float y)
+		{
+			float badgeWidth = GS!(18);
+			float badgeHeight = GS!(16);
+			float textX = x + GS!(4);
+			float textY = y - GS!(1);
+
+			using (g.PushColor(C_BEEF_GREEN_DARK))
+				g.FillRect(x, y, badgeWidth, badgeHeight);
+			using (g.PushColor(C_BEEF_GREEN))
+				g.OutlineRect(x, y, badgeWidth, badgeHeight);
+			using (g.PushColor(C_BEEF_GREEN_TEXT))
+				g.DrawString("B", textX, textY);
+
+			return badgeWidth;
 		}
 
         public class AutoCompleteContent : ScrollableWidget
@@ -1783,6 +1803,10 @@ namespace IDE.ui
 				var selectedEntry = mEntryList[mSelectIdx];
 				
 				float maxWidth = mWidth;
+				bool showBeefBadge = false;
+				if (let sourceEditWidget = mAutoComplete.mTargetEditWidget as SourceEditWidget)
+					if (let sourceViewPanel = sourceEditWidget.mPanel as SourceViewPanel)
+						showBeefBadge = sourceViewPanel.mIsBeefSource;
 
 				StringView paramName = .();
 				List<StringView> textSections = scope List<StringView>(selectedEntry.mText.Split('\x01'));
@@ -1799,6 +1823,13 @@ namespace IDE.ui
 					fullSignature.Append(textSections[sectionIdx]);
 					if (sectionIdx == cursorSection)
 						highlightEnd = (.)fullSignature.Length;
+				}
+
+				if (showBeefBadge)
+				{
+					if (g != null)
+						AutoComplete.DrawBeefBadge(g, curX, curY + GS!(1));
+					curX += GS!(18) + GS!(8);
 				}
 
 				if (g != null)

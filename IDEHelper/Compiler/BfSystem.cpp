@@ -3560,6 +3560,12 @@ void BfSystem::AddToCompositePartial(BfPassInstance* passInstance, BfTypeDef* co
 				((method->mDeclaringType != NULL) && (method->mDeclaringType->IsExtension())) ||
 				((checkMethod->mDeclaringType != NULL) && (checkMethod->mDeclaringType->IsExtension()));
 
+			// CtorNoBody/~this/mark helpers emitted per partial or extension piece need to remain chainable.
+			// If we dedupe these just because they are declaration-less synthesized methods, we can drop
+			// field init/dtor bodies from later pieces, which breaks tests like Extensions.TestBasics.
+			if (BfCanChainMethodForPartialMerge(method, checkMethod))
+				continue;
+
 			// Keep one copy of any declaration-less synthesized method emitted per partial piece.
 			if ((isSynthMethod) && (checkIsSynthMethod))
 			{
@@ -3578,9 +3584,6 @@ void BfSystem::AddToCompositePartial(BfPassInstance* passInstance, BfTypeDef* co
 
 			// Extension methods keep regular duplicate/new semantics in normal method resolution.
 			if (isExtensionMethodMatch)
-				continue;
-
-			if (BfCanChainMethodForPartialMerge(method, checkMethod))
 				continue;
 
 			// C# behavior: explicit ctor suppresses synthesized default ctor.
