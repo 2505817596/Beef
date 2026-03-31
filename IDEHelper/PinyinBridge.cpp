@@ -136,3 +136,41 @@ BF_EXPORT char BF_CALLTYPE IDEHelper_GetPinyinInitial(int32 codePoint)
 
 	return GetInitialFromPinyin(pinyinList[0]);
 }
+
+BF_EXPORT int32 BF_CALLTYPE IDEHelper_GetPinyinText(int32 codePoint, char* outText, int32 outTextSize)
+{
+	if ((outText == NULL) || (outTextSize <= 0))
+		return 0;
+
+	outText[0] = 0;
+
+	if (!IsHanziCodePoint((uint32)codePoint))
+		return 0;
+
+	std::call_once(gPinyinInitOnce, InitPinyin);
+	if ((!gPinyinReady) || (gPinyin == nullptr))
+		return 0;
+
+	std::string hanzi;
+	hanzi.reserve(4);
+	if (!AppendCodePointUtf8((uint32)codePoint, hanzi))
+		return 0;
+
+	std::lock_guard<std::mutex> lock(gPinyinLock);
+	const auto pinyinList = gPinyin->getDefaultPinyin(hanzi, Pinyin::ManTone::Style::NORMAL, false, false);
+	if (pinyinList.empty())
+		return 0;
+
+	int outLen = 0;
+	for (char c : pinyinList[0])
+	{
+		if (std::isalpha((uint8)c) == 0)
+			continue;
+		if (outLen >= outTextSize - 1)
+			break;
+		outText[outLen++] = (char)std::tolower((uint8)c);
+	}
+
+	outText[outLen] = 0;
+	return outLen;
+}

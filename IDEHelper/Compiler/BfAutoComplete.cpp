@@ -18,6 +18,158 @@ using namespace llvm;
 
 USING_NS_BF;
 
+BF_EXPORT char BF_CALLTYPE IDEHelper_GetPinyinInitial(int32 codePoint);
+BF_EXPORT int32 BF_CALLTYPE IDEHelper_GetPinyinText(int32 codePoint, char* outText, int32 outTextSize);
+
+namespace
+{
+	bool DoesSubstringMatchI(const char* entry, const char* filter, int entryLen, int filterLen)
+	{
+		if ((filterLen <= 0) || (filterLen > entryLen))
+			return false;
+
+		for (int entryIdx = 0; entryIdx <= entryLen - filterLen; entryIdx++)
+			if (strnicmp(entry + entryIdx, filter, filterLen) == 0)
+				return true;
+
+		return false;
+	}
+
+	bool BuildIdentifierSearchText(const char* entry, char* outStr, int outStrSize, bool& hasPinyinChars)
+	{
+		hasPinyinChars = false;
+
+		if ((entry == NULL) || (outStr == NULL) || (outStrSize <= 0))
+			return false;
+
+		int entryIdx = 0;
+		int outIdx = 0;
+		while (entry[entryIdx] != 0)
+		{
+			uint32 entryC = u8_nextchar((char*)entry, &entryIdx);
+
+			if (entryC < 0x80)
+			{
+				if (outIdx >= outStrSize - 1)
+					break;
+				outStr[outIdx++] = (char)tolower((uint8)entryC);
+				continue;
+			}
+
+			char initialC = IDEHelper_GetPinyinInitial((int32)entryC);
+			if (initialC == 0)
+				continue;
+
+			if (outIdx >= outStrSize - 1)
+				break;
+
+			hasPinyinChars = true;
+			outStr[outIdx++] = (char)tolower((uint8)initialC);
+		}
+
+		outStr[outIdx] = 0;
+		return outIdx > 0;
+	}
+
+	bool BuildIdentifierFullPinyinText(const char* entry, char* outStr, int outStrSize, bool& hasPinyinChars)
+	{
+		hasPinyinChars = false;
+
+		if ((entry == NULL) || (outStr == NULL) || (outStrSize <= 0))
+			return false;
+
+		int entryIdx = 0;
+		int outIdx = 0;
+		while (entry[entryIdx] != 0)
+		{
+			uint32 entryC = u8_nextchar((char*)entry, &entryIdx);
+
+			if (entryC < 0x80)
+			{
+				if (isalnum((uint8)entryC))
+				{
+					if (outIdx >= outStrSize - 1)
+						break;
+					outStr[outIdx++] = (char)tolower((uint8)entryC);
+				}
+				continue;
+			}
+
+			char pinyinText[32];
+			int pinyinLen = IDEHelper_GetPinyinText((int32)entryC, pinyinText, sizeof(pinyinText));
+			if (pinyinLen <= 0)
+				continue;
+
+			hasPinyinChars = true;
+			for (int i = 0; i < pinyinLen; i++)
+			{
+				if (outIdx >= outStrSize - 1)
+					break;
+				outStr[outIdx++] = pinyinText[i];
+			}
+		}
+
+		outStr[outIdx] = 0;
+		return outIdx > 0;
+	}
+
+	bool BuildIdentifierInitials(const char* entry, char* initialStr, int initialStrSize, bool& hasPinyinInitial)
+	{
+		hasPinyinInitial = false;
+
+		if ((entry == NULL) || (initialStr == NULL) || (initialStrSize <= 0))
+			return false;
+
+		int entryIdx = 0;
+		int initialIdx = 0;
+		bool prevWasUnderscore = false;
+
+		while (entry[entryIdx] != 0)
+		{
+			int curEntryIdx = entryIdx;
+			uint32 entryC = u8_nextchar((char*)entry, &entryIdx);
+
+			if (entryC == '_')
+			{
+				prevWasUnderscore = true;
+				continue;
+			}
+
+			bool appendInitial = false;
+			char initialC = 0;
+			if ((curEntryIdx == 0) || (prevWasUnderscore) ||
+				((entryC < 0x80) && ((((uint8)entryC >= 'A') && ((uint8)entryC <= 'Z')) || (((uint8)entryC >= '0') && ((uint8)entryC <= '9')))))
+			{
+				appendInitial = true;
+				if (entryC < 0x80)
+					initialC = (char)entryC;
+			}
+			else if (entryC >= 0x80)
+			{
+				initialC = IDEHelper_GetPinyinInitial((int32)entryC);
+				if (initialC != 0)
+				{
+					appendInitial = true;
+					hasPinyinInitial = true;
+				}
+			}
+
+			prevWasUnderscore = false;
+
+			if ((!appendInitial) || (initialC == 0))
+				continue;
+
+			if (initialIdx >= initialStrSize - 1)
+				break;
+
+			initialStr[initialIdx++] = (char)tolower((uint8)initialC);
+		}
+
+		initialStr[initialIdx] = 0;
+		return initialIdx > 0;
+	}
+}
+
 AutoCompleteBase::AutoCompleteBase()
 {
 	mIsGetDefinition = false;
@@ -127,6 +279,7 @@ bool AutoCompleteBase::DoesFilterMatch(const char* entry, const char* filter, in
 	{
 		bool hasUnderscore = false;
 		bool checkInitials = filterLen > 1;
+		bool entryHasNonAscii = false;
 		for (int i = 0; i < (int)filterLen; i++)
 		{
 			char c = filter[i];
@@ -135,6 +288,18 @@ bool AutoCompleteBase::DoesFilterMatch(const char* entry, const char* filter, in
 			else if (islower((uint8)filter[i]))
 				checkInitials = false;
 		}
+
+		for (int i = 0; i < entryLen; i++)
+		{
+			if (((uint8)entry[i]) >= 0x80)
+			{
+				entryHasNonAscii = true;
+				break;
+			}
+		}
+
+		if ((entryHasNonAscii) && (filterLen > 0))
+			checkInitials = true;
 
 		if (hasUnderscore)
 			return strnicmp(filter, entry, filterLen) == 0;
@@ -168,10 +333,52 @@ bool AutoCompleteBase::DoesFilterMatch(const char* entry, const char* filter, in
 				break; // Don't check inners for single-character case
 		}
 
-		if (!checkInitials)
-			return false;
+		if ((!checkInitials) && (!entryHasNonAscii))
+			return DoesSubstringMatchI(entry, filter, entryLen, filterLen);
+
+		bool hasPinyinInitial = false;
+		if (entryHasNonAscii)
+		{
+			initialStrP = initialStr;
+			if (BuildIdentifierInitials(entry, initialStr, sizeof(initialStr), hasPinyinInitial))
+				initialStrP = initialStr + strlen(initialStr);
+		}
+
+		if ((filterLen == 1) && (!hasPinyinInitial) && (entryHasNonAscii))
+			return DoesSubstringMatchI(entry, filter, entryLen, filterLen);
+
+		char searchStr[512];
+		bool hasSearchPinyin = false;
+		if ((entryHasNonAscii) && (BuildIdentifierSearchText(entry, searchStr, sizeof(searchStr), hasSearchPinyin)))
+		{
+			int searchLen = (int)strlen(searchStr);
+			if ((hasSearchPinyin) && (filterLen <= searchLen) && (DoesSubstringMatchI(searchStr, filter, searchLen, filterLen)))
+				return true;
+		}
+
+		char fullPinyinStr[1024];
+		bool hasFullPinyin = false;
+		if ((entryHasNonAscii) && (BuildIdentifierFullPinyinText(entry, fullPinyinStr, sizeof(fullPinyinStr), hasFullPinyin)))
+		{
+			int fullPinyinLen = (int)strlen(fullPinyinStr);
+			if ((hasFullPinyin) && (filterLen <= fullPinyinLen) && (DoesSubstringMatchI(fullPinyinStr, filter, fullPinyinLen, filterLen)))
+				return true;
+		}
+
 		*(initialStrP++) = 0;
-		return strnicmp(filter, initialStr, filterLen) == 0;
+		if (hasPinyinInitial)
+		{
+			int initialLen = (int)strlen(initialStr);
+			for (int startIdx = 0; startIdx <= initialLen - filterLen; startIdx++)
+				if (strnicmp(filter, initialStr + startIdx, filterLen) == 0)
+					return true;
+			return DoesSubstringMatchI(entry, filter, entryLen, filterLen);
+		}
+
+		if (strnicmp(filter, initialStr, filterLen) == 0)
+			return true;
+
+		return DoesSubstringMatchI(entry, filter, entryLen, filterLen);
 	}
 }
 

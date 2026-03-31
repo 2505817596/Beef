@@ -2596,6 +2596,8 @@ namespace IDE.ui
 #if BF_PLATFORM_WINDOWS
 		[CallingConvention(.Stdcall), CLink]
 		static extern char8 IDEHelper_GetPinyinInitial(char32 c32);
+		[CallingConvention(.Stdcall), CLink]
+		static extern int32 IDEHelper_GetPinyinText(char32 c32, char8* outText, int32 outTextSize);
 #endif
 
 		const int32 MATCH_TIER_EXACT_CASE = 0;
@@ -2937,6 +2939,115 @@ namespace IDE.ui
 			return pinyinCount;
 		}
 
+		int BuildIdentifierSearchTextAndPositions(String entry, char8* searchChars, uint8* searchPos, int maxCount, out bool hasPinyin)
+		{
+			hasPinyin = false;
+			int searchCount = 0;
+			int entryIdx = 0;
+
+			for (char32 entryC in entry.DecodedChars)
+			{
+				int nextEntryIdx = @entryC.NextIndex;
+				if (entryIdx > uint8.MaxValue)
+				{
+					entryIdx = nextEntryIdx;
+					continue;
+				}
+
+				if (entryC <= (char32)0x7F)
+				{
+					char8 c8 = (char8)entryC;
+					if (c8.IsLetterOrDigit)
+					{
+						if (searchCount < maxCount)
+						{
+							if ((c8 >= 'A') && (c8 <= 'Z'))
+								c8 = (char8)(c8 - 'A' + 'a');
+							searchChars[searchCount] = c8;
+							searchPos[searchCount] = (uint8)entryIdx;
+							searchCount++;
+						}
+					}
+
+					entryIdx = nextEntryIdx;
+					continue;
+				}
+
+				char8 initialC = 0;
+				if (TryGetPinyinInitial(entryC, out initialC))
+				{
+					hasPinyin = true;
+					if (searchCount < maxCount)
+					{
+						searchChars[searchCount] = initialC;
+						searchPos[searchCount] = (uint8)entryIdx;
+						searchCount++;
+					}
+				}
+
+				entryIdx = nextEntryIdx;
+			}
+
+			return searchCount;
+		}
+
+		int BuildIdentifierFullPinyinAndPositions(String entry, char8* searchChars, uint8* searchPos, int maxCount, out bool hasPinyin)
+		{
+			hasPinyin = false;
+			int searchCount = 0;
+			int entryIdx = 0;
+
+			for (char32 entryC in entry.DecodedChars)
+			{
+				int nextEntryIdx = @entryC.NextIndex;
+				if (entryIdx > uint8.MaxValue)
+				{
+					entryIdx = nextEntryIdx;
+					continue;
+				}
+
+				if (entryC <= (char32)0x7F)
+				{
+					char8 c8 = (char8)entryC;
+					if (c8.IsLetterOrDigit)
+					{
+						if (searchCount < maxCount)
+						{
+							if ((c8 >= 'A') && (c8 <= 'Z'))
+								c8 = (char8)(c8 - 'A' + 'a');
+							searchChars[searchCount] = c8;
+							searchPos[searchCount] = (uint8)entryIdx;
+							searchCount++;
+						}
+					}
+
+					entryIdx = nextEntryIdx;
+					continue;
+				}
+
+#if BF_PLATFORM_WINDOWS
+				char8[32] pinyinText = ?;
+				int32 pinyinLen = IDEHelper_GetPinyinText(entryC, &pinyinText, pinyinText.Count);
+				if (pinyinLen > 0)
+				{
+					hasPinyin = true;
+					for (int i = 0; i < pinyinLen; i++)
+					{
+						if (searchCount >= maxCount)
+							break;
+						searchChars[searchCount] = pinyinText[i];
+						searchPos[searchCount] = (uint8)entryIdx;
+						searchCount++;
+					}
+				}
+#endif
+
+				entryIdx = nextEntryIdx;
+			}
+
+			return searchCount;
+		}
+
 		int FindPinyinStart(char8* pinyinChars, int pinyinLen, char8* filterPtr, int filterLen, bool ignoreCase)
 		{
 			if ((filterLen <= 0) || (filterLen > pinyinLen))
@@ -2956,14 +3067,20 @@ namespace IDE.ui
 			if (!IsAsciiIdentifierFilter(filter))
 				return false;
 
-			char8[1024] pinyinChars = ?;
-			uint8[1024] pinyinPos = ?;
+			char8[1024] searchChars = ?;
+			uint8[1024] searchPos = ?;
 			bool hasPinyin = false;
-			int pinyinLen = BuildPinyinAndPositions(entry, &pinyinChars, &pinyinPos, pinyinChars.Count, out hasPinyin);
-			if ((!hasPinyin) || (pinyinLen <= 0))
+			int searchLen = BuildIdentifierSearchTextAndPositions(entry, &searchChars, &searchPos, searchChars.Count, out hasPinyin);
+			if ((hasPinyin) && (searchLen > 0))
+				if (FindPinyinStart(&searchChars, searchLen, filter.Ptr, filter.Length, ignoreCase) != -1)
+					return true;
+
+			hasPinyin = false;
+			searchLen = BuildIdentifierFullPinyinAndPositions(entry, &searchChars, &searchPos, searchChars.Count, out hasPinyin);
+			if ((!hasPinyin) || (searchLen <= 0))
 				return false;
 
-			return FindPinyinStart(&pinyinChars, pinyinLen, filter.Ptr, filter.Length, ignoreCase) != -1;
+			return FindPinyinStart(&searchChars, searchLen, filter.Ptr, filter.Length, ignoreCase) != -1;
 		}
 
 		bool IsWordBoundaryPrefixMatch(String entry, String filter, bool ignoreCase)
@@ -3439,29 +3556,37 @@ namespace IDE.ui
 				return;
 			}
 
-			char8[1024] pinyinChars = ?;
-			uint8[1024] pinyinPos = ?;
+			char8[1024] searchChars = ?;
+			uint8[1024] searchPos = ?;
 			bool hasPinyin = false;
-			int pinyinLen = BuildPinyinAndPositions(entry.mEntryDisplay, &pinyinChars, &pinyinPos, pinyinChars.Count, out hasPinyin);
-			if ((!hasPinyin) || (pinyinLen <= 0))
-			{
-				entry.SetMatches(Span<uint8>((uint8*)null, 0));
-				return;
-			}
-
-			int startIdx = FindPinyinStart(&pinyinChars, pinyinLen, filter.Ptr, filter.Length, ignoreCase);
+			int searchLen = BuildIdentifierSearchTextAndPositions(entry.mEntryDisplay, &searchChars, &searchPos, searchChars.Count, out hasPinyin);
+			int startIdx = -1;
+			if ((hasPinyin) && (searchLen > 0))
+				startIdx = FindPinyinStart(&searchChars, searchLen, filter.Ptr, filter.Length, ignoreCase);
 			if (startIdx == -1)
 			{
-				entry.SetMatches(Span<uint8>((uint8*)null, 0));
-				return;
+				hasPinyin = false;
+				searchLen = BuildIdentifierFullPinyinAndPositions(entry.mEntryDisplay, &searchChars, &searchPos, searchChars.Count, out hasPinyin);
+				if ((!hasPinyin) || (searchLen <= 0))
+				{
+					entry.SetMatches(Span<uint8>((uint8*)null, 0));
+					return;
+				}
+
+				startIdx = FindPinyinStart(&searchChars, searchLen, filter.Ptr, filter.Length, ignoreCase);
+				if (startIdx == -1)
+				{
+					entry.SetMatches(Span<uint8>((uint8*)null, 0));
+					return;
+				}
 			}
 
 			uint8[256] matchPos = ?;
 			int matchCount = 0;
-			int endIdx = Math.Min(startIdx + filter.Length, pinyinLen);
+			int endIdx = Math.Min(startIdx + filter.Length, searchLen);
 			for (int i = startIdx; i < endIdx; i++)
 			{
-				uint8 pos = pinyinPos[i];
+				uint8 pos = searchPos[i];
 				if ((matchCount == 0) || (matchPos[matchCount - 1] != pos))
 				{
 					if (matchCount >= matchPos.Count)
