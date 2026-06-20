@@ -809,6 +809,7 @@ namespace IDE.ui
             public AutoComplete mAutoComplete;
             public bool mIsInitted;
 			public bool mOwnsWindow;
+			bool mRegisteredWindowHandlers;
 			public float mRightBoxAdjust;
 			public float mWantHeight;
 
@@ -868,6 +869,7 @@ namespace IDE.ui
 	                WidgetWindow.sOnMouseWheel.Add(new => HandleMouseWheel);
 	                WidgetWindow.sOnWindowMoved.Add(new => HandleWindowMoved);
 	                WidgetWindow.sOnMenuItemSelected.Add(new => HandleSysMenuItemSelected);
+					mRegisteredWindowHandlers = true;
 				}
             }
 
@@ -914,15 +916,16 @@ namespace IDE.ui
 					return;
 
                 //Console.WriteLine("AutoCompleteContent Dispose");
-				if (mOwnsWindow)
+				if (mRegisteredWindowHandlers)
 				{
 	                WidgetWindow.sOnWindowLostFocus.Remove(scope => LostFocusHandler, true);
 	                WidgetWindow.sOnMouseDown.Remove(scope => HandleMouseDown, true);
 	                WidgetWindow.sOnMouseWheel.Remove(scope => HandleMouseWheel, true);
 	                WidgetWindow.sOnWindowMoved.Remove(scope => HandleWindowMoved, true);
 	                WidgetWindow.sOnMenuItemSelected.Remove(scope => HandleSysMenuItemSelected, true);
-	                mIsInitted = false;
+					mRegisteredWindowHandlers = false;
 				}
+				mIsInitted = false;
             }
 
             public override void Draw(Graphics g)
@@ -4127,9 +4130,7 @@ namespace IDE.ui
 
 			// Fallback: parse current source text directly so newly-typed local types
 			// (including Chinese names) are available even if backend list is filtered.
-			String sourceText = scope:: String();
 			var content = mTargetEditWidget.Content;
-			content.ExtractString(0, content.mData.mTextLength, sourceText);
 
 			bool IsTypeDeclKeyword(StringView token)
 			{
@@ -4142,10 +4143,29 @@ namespace IDE.ui
 				}
 			}
 
-			int idx = 0;
-			while (idx < sourceText.Length)
+			bool IsCodeText(int32 checkIdx)
 			{
-				char8 c = sourceText[idx];
+				var elementType = (SourceElementType)content.mData.mText[checkIdx].mDisplayTypeId;
+				return (elementType != .Literal) && (elementType != .Comment);
+			}
+
+			void ExtractText(int32 startIdx, int32 endIdx, String outText)
+			{
+				for (int32 textIdx = startIdx; textIdx < endIdx; textIdx++)
+					outText.Append(content.mData.mText[textIdx].mChar);
+			}
+
+			int idx = 0;
+			int textLength = content.mData.mTextLength;
+			while (idx < textLength)
+			{
+				if (!IsCodeText((.)idx))
+				{
+					idx++;
+					continue;
+				}
+
+				char32 c = content.mData.mText[idx].mChar;
 				if (!AutoComplete.IsIdentifierStartChar(c))
 				{
 					idx++;
@@ -4154,26 +4174,34 @@ namespace IDE.ui
 
 				int tokenStart = idx;
 				idx++;
-				while ((idx < sourceText.Length) && AutoComplete.IsIdentifierChar(sourceText[idx]))
+				while ((idx < textLength) &&
+					(IsCodeText((.)idx)) &&
+					(AutoComplete.IsIdentifierChar(content.mData.mText[idx].mChar)))
 					idx++;
-				StringView token = StringView(sourceText, tokenStart, idx - tokenStart);
+				String token = scope .();
+				ExtractText((.)tokenStart, (.)idx, token);
 				if (!IsTypeDeclKeyword(token))
 					continue;
 
-				while ((idx < sourceText.Length) && sourceText[idx].IsWhiteSpace)
+				while ((idx < textLength) &&
+					(IsCodeText((.)idx)) &&
+					(content.mData.mText[idx].mChar.IsWhiteSpace))
 					idx++;
 
-				if ((idx < sourceText.Length) && (sourceText[idx] == '@'))
+				if ((idx < textLength) && (content.mData.mText[idx].mChar == '@'))
 					idx++;
 
-				if ((idx >= sourceText.Length) || (!AutoComplete.IsIdentifierStartChar(sourceText[idx])))
+				if ((idx >= textLength) || (!IsCodeText((.)idx)) || (!AutoComplete.IsIdentifierStartChar(content.mData.mText[idx].mChar)))
 					continue;
 
 				int typeStart = idx;
 				idx++;
-				while ((idx < sourceText.Length) && AutoComplete.IsIdentifierChar(sourceText[idx]))
+				while ((idx < textLength) &&
+					(IsCodeText((.)idx)) &&
+					(AutoComplete.IsIdentifierChar(content.mData.mText[idx].mChar)))
 					idx++;
-				StringView typeName = StringView(sourceText, typeStart, idx - typeStart);
+				String typeName = scope .();
+				ExtractText((.)typeStart, (.)idx, typeName);
 				AddTypeNameIfNeeded(typeName, classIcon);
 			}
 		}
@@ -4981,7 +5009,7 @@ namespace IDE.ui
 			return false;
 		}
 
-		void ApplyFixit(String data)
+		public void ApplyFixit(String data)
 		{
 			int splitIdx = data.IndexOf('\x01');
 			if (splitIdx != -1)
@@ -5231,6 +5259,10 @@ namespace IDE.ui
 			var sewc = mTargetEditWidget.Content as SourceEditWidgetContent;
 			Debug.Assert(sewc.IsPrimaryTextCursor());
 			var isExplicitInsert = (keyChar == '\0') || (keyChar == '\t') || (keyChar == '\n') || (keyChar == '\r');
+			if ((mAutoCompleteListWidget == null) ||
+				(mAutoCompleteListWidget.mSelectIdx < 0) ||
+				(mAutoCompleteListWidget.mSelectIdx >= mAutoCompleteListWidget.mEntryList.Count))
+				return;
 
 			AutoCompleteListWidget.EntryWidget GetEntry()
 			{

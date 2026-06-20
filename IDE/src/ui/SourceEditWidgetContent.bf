@@ -4114,6 +4114,7 @@ namespace IDE.ui
 
 			SourceElementType prevElementType = SourceElementType.Normal;
 			char8 prevChar = 0;
+			bool insertedLiteralCharPair = false;
 			int cursorTextPos = CursorTextPos;
 			if (cursorTextPos != 0)
 			{
@@ -4466,9 +4467,15 @@ namespace IDE.ui
                 else if ((keyChar == '[') && (cursorInOpenSpace))
                     InsertCharPair("[]");
                 else if ((keyChar == '\"') && (cursorInOpenSpace) && (!cursorAfterText))
+				{
                     InsertCharPair("\"\"");
+					insertedLiteralCharPair = true;
+				}
                 else if ((keyChar == '\'') && (cursorInOpenSpace) && (!cursorAfterText))
+				{
                     InsertCharPair("\'\'");
+					insertedLiteralCharPair = true;
+				}
                 else
                     doChar = true;
             }
@@ -4493,6 +4500,11 @@ namespace IDE.ui
 					needsFreshAutoComplete = false;
 					mAutoComplete?.CloseListWindow();
 				}
+				else if (insertedLiteralCharPair)
+				{
+					needsFreshAutoComplete = false;
+					mAutoComplete?.CloseListWindow();
+				}
 
 				if ((needsFreshAutoComplete) && (keyChar == '\b'))
 				{
@@ -4502,7 +4514,7 @@ namespace IDE.ui
 					}
 				}
 
-				if ((mAutoComplete != null) && (!isLiteralEdit))
+				if ((mAutoComplete != null) && (!isLiteralEdit) && (!insertedLiteralCharPair))
 				{
 				    mAutoComplete.UpdateAsyncInfo();
 					needsFreshAutoComplete = true;
@@ -5089,7 +5101,44 @@ namespace IDE.ui
 								}
 	                        });
 
-						// Fixits
+						bool ApplyUsingFixitDirect(StringView fixitData)
+						{
+							if (!fixitData.StartsWith(".using|"))
+								return false;
+
+							var parts = String.StackSplit!(fixitData, '|');
+							if (parts.Count < 5)
+								return false;
+
+							int32 insertIdx = int32.Parse(parts[2]).GetValueOrDefault();
+							if ((insertIdx < 0) || (insertIdx > mData.mTextLength))
+								return false;
+
+							String usingText = scope .();
+							usingText.Append(parts[4]);
+							if (usingText.IsEmpty)
+								return false;
+
+							float prevScrollPos = (float)mEditWidget.mVertPos.mDest;
+							int32 prevCursorTextPos = (.)CursorTextPos;
+							int prevTextLength = mData.mTextLength;
+
+							if (prevScrollPos != 0)
+								CheckRecordScrollTop(true);
+
+							CurSelection = null;
+							CursorTextPos = insertIdx;
+							InsertAtCursor(usingText);
+
+							mEditWidget.VertScrollTo(prevScrollPos, true);
+							CursorTextPos = prevCursorTextPos;
+							int addedSize = mData.mTextLength - prevTextLength;
+							AdjustCursorsAfterExternalEdit(insertIdx, addedSize, 0);
+							CurCursorTextPos += (int32)addedSize;
+							return true;
+						}
+
+                        // Fixits
 						if ((mSourceViewPanel.mIsBeefSource) && (mSourceViewPanel.FilteredProjectSource != null) && (gApp.mSymbolReferenceHelper?.IsLocked != true))
 						{
 							ResolveParams resolveParams = scope .();
@@ -5107,26 +5156,26 @@ namespace IDE.ui
 									if (cmd != "fixit")
 										continue;
 									let arg = strItr.GetNext().Value;
+									let fixitData = strItr.GetNext().Value;
 									var fixitItem = menuItem.AddItem(arg);
 
-									var infoCopy = new String(resolveParams.mNavigationData);
+									var fixitDataCopy = new String(fixitData);
 									fixitItem.mOnMenuItemSelected.Add(new (menu) =>
 										{
 											mAutoComplete?.Close();
 											var autoComplete = new AutoComplete(mEditWidget);
-											autoComplete.SetInfo(infoCopy);
-											autoComplete.mAutoCompleteListWidget.mSelectIdx = fixitIdx;
 
 											UndoBatchStart undoBatchStart = new UndoBatchStart("autocomplete");
 											mData.mUndoManager.Add(undoBatchStart);
-											autoComplete.InsertSelection(0);
+											if (!ApplyUsingFixitDirect(fixitDataCopy))
+												autoComplete.ApplyFixit(fixitDataCopy);
 											mData.mUndoManager.Add(undoBatchStart.mBatchEnd);
 
 											autoComplete.Close();
 										}
 										~
 										{
-											delete infoCopy;
+											delete fixitDataCopy;
 										});
 									fixitIdx++;
 								}

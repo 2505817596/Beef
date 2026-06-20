@@ -218,6 +218,7 @@ public:
 	String GetFilter(BfAstNode* node);
 	const char* GetTypeName(BfType* type);
 	int GetCursorIdx(BfAstNode* node);
+	bool IsCursorInStringLiteral();
 	bool IsAutocompleteNode(BfAstNode* node, int lengthAdd = 0, int startAdd = 0);
 	bool IsAutocompleteNode(BfAstNode* startNode, BfAstNode* endNode, int lengthAdd = 0, int startAdd = 0);
 	bool IsAutocompleteLineNode(BfAstNode* node);

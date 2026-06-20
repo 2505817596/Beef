@@ -509,6 +509,285 @@ int BfAutoComplete::GetCursorIdx(BfAstNode* node)
 	return bfParser->mCursorIdx;
 }
 
+bool BfAutoComplete::IsCursorInStringLiteral()
+{
+	if ((mCompiler == NULL) || (mCompiler->mResolvePassData == NULL))
+		return false;
+
+	BfParser* bfParser = NULL;
+	for (auto parser : mCompiler->mResolvePassData->mParsers)
+	{
+		if ((parser != NULL) && ((parser->mParserFlags & ParserFlag_Autocomplete) != 0) && (parser->mCursorIdx != -1))
+		{
+			bfParser = parser;
+			break;
+		}
+	}
+	if ((bfParser == NULL) || ((bfParser->mParserFlags & ParserFlag_Autocomplete) == 0))
+		return false;
+
+	int cursorIdx = bfParser->mCursorIdx;
+	if ((cursorIdx <= 0) || (cursorIdx >= bfParser->mOrigSrcLength))
+		return false;
+
+	const char* src = bfParser->mSrc;
+	bool inLineComment = false;
+	bool inBlockComment = false;
+	bool inString = false;
+	bool isCharLiteral = false;
+	bool isVerbatim = false;
+	bool isMultiline = false;
+	int interpolateSetting = 0;
+	bool inInterpolationExpr = false;
+	int interpolationBraceDepth = 0;
+	bool inExprLineComment = false;
+	bool inExprBlockComment = false;
+	bool inExprString = false;
+	bool exprIsVerbatim = false;
+	bool exprIsMultiline = false;
+	char exprQuoteChar = 0;
+	char quoteChar = 0;
+
+	for (int srcIdx = 0; srcIdx < cursorIdx; srcIdx++)
+	{
+		char c = src[srcIdx];
+
+		if (inLineComment)
+		{
+			if (c == '\n')
+				inLineComment = false;
+			continue;
+		}
+
+		if (inBlockComment)
+		{
+			if ((c == '*') && (src[srcIdx + 1] == '/'))
+			{
+				srcIdx++;
+				inBlockComment = false;
+			}
+			continue;
+		}
+
+		if (inInterpolationExpr)
+		{
+			if (inExprLineComment)
+			{
+				if (c == '\n')
+					inExprLineComment = false;
+				continue;
+			}
+
+			if (inExprBlockComment)
+			{
+				if ((c == '*') && (src[srcIdx + 1] == '/'))
+				{
+					srcIdx++;
+					inExprBlockComment = false;
+				}
+				continue;
+			}
+
+			if (inExprString)
+			{
+				if ((!exprIsVerbatim) && (!exprIsMultiline) && (c == '\\'))
+				{
+					if (srcIdx + 1 < cursorIdx)
+						srcIdx++;
+					continue;
+				}
+
+				if (c == exprQuoteChar)
+				{
+					if (exprIsMultiline)
+					{
+						if ((src[srcIdx + 1] == exprQuoteChar) && (src[srcIdx + 2] == exprQuoteChar))
+						{
+							srcIdx += 2;
+							inExprString = false;
+							exprIsVerbatim = false;
+						}
+					}
+					else if ((exprQuoteChar == '"') && (exprIsVerbatim) && (src[srcIdx + 1] == exprQuoteChar))
+					{
+						srcIdx++;
+					}
+					else
+					{
+						inExprString = false;
+						exprIsVerbatim = false;
+					}
+				}
+				continue;
+			}
+
+			if ((c == '/') && (src[srcIdx + 1] == '/'))
+			{
+				srcIdx++;
+				inExprLineComment = true;
+				continue;
+			}
+
+			if ((c == '/') && (src[srcIdx + 1] == '*'))
+			{
+				srcIdx++;
+				inExprBlockComment = true;
+				continue;
+			}
+
+			bool nextIsStringPrefix = false;
+			while ((c == '@') || (c == '$'))
+			{
+				if (c == '@')
+					exprIsVerbatim = true;
+				nextIsStringPrefix = true;
+				if (srcIdx + 1 >= cursorIdx)
+					break;
+				c = src[++srcIdx];
+			}
+
+			if ((c == '"') || (c == '\''))
+			{
+				exprQuoteChar = c;
+				exprIsMultiline = (c == '"') && (src[srcIdx + 1] == '"') && (src[srcIdx + 2] == '"');
+				inExprString = true;
+				if (exprIsMultiline)
+					srcIdx += 2;
+				continue;
+			}
+			else if (nextIsStringPrefix)
+			{
+				exprIsVerbatim = false;
+			}
+
+			if (c == '{')
+			{
+				interpolationBraceDepth++;
+			}
+			else if (c == '}')
+			{
+				interpolationBraceDepth--;
+				if (interpolationBraceDepth <= 0)
+				{
+					inInterpolationExpr = false;
+					interpolationBraceDepth = 0;
+				}
+			}
+			continue;
+		}
+
+		if (inString)
+		{
+			if ((!isVerbatim) && (!isMultiline) && (c == '\\'))
+			{
+				if (srcIdx + 1 < cursorIdx)
+					srcIdx++;
+				continue;
+			}
+
+			if (c == quoteChar)
+			{
+				if (isMultiline)
+				{
+					if ((src[srcIdx + 1] == quoteChar) && (src[srcIdx + 2] == quoteChar))
+					{
+						srcIdx += 2;
+						inString = false;
+						isVerbatim = false;
+						interpolateSetting = 0;
+					}
+				}
+				else if ((quoteChar == '"') && (isVerbatim) && (src[srcIdx + 1] == quoteChar))
+				{
+					srcIdx++;
+				}
+				else
+				{
+					inString = false;
+					isVerbatim = false;
+					interpolateSetting = 0;
+				}
+			}
+			else if ((interpolateSetting > 0) && (c == '{'))
+			{
+				int braceCount = 1;
+				while (src[srcIdx + braceCount] == '{')
+					braceCount++;
+
+				bool startsInterpolation =
+					((interpolateSetting == 1) && ((braceCount % 2) == 1)) ||
+					((interpolateSetting > 1) && (braceCount >= interpolateSetting));
+				if (startsInterpolation)
+				{
+					inInterpolationExpr = true;
+					interpolationBraceDepth = 1;
+				}
+				srcIdx += braceCount - 1;
+			}
+
+			continue;
+		}
+
+		if ((c == '/') && (src[srcIdx + 1] == '/'))
+		{
+			srcIdx++;
+			inLineComment = true;
+			continue;
+		}
+
+		if ((c == '/') && (src[srcIdx + 1] == '*'))
+		{
+			srcIdx++;
+			inBlockComment = true;
+			continue;
+		}
+
+		bool nextIsStringPrefix = false;
+		int nextInterpolateSetting = 0;
+		while ((c == '@') || (c == '$'))
+		{
+			if (c == '@')
+				isVerbatim = true;
+			else
+				nextInterpolateSetting++;
+			nextIsStringPrefix = true;
+			if (srcIdx + 1 >= cursorIdx)
+				break;
+			c = src[++srcIdx];
+		}
+
+		if ((c == '"') || (c == '\''))
+		{
+			quoteChar = c;
+			isCharLiteral = c == '\'';
+			isMultiline = (!isCharLiteral) && (src[srcIdx + 1] == '"') && (src[srcIdx + 2] == '"');
+			interpolateSetting = isCharLiteral ? 0 : nextInterpolateSetting;
+			inString = true;
+			if (isMultiline)
+				srcIdx += 2;
+		}
+		else if (nextIsStringPrefix)
+		{
+			isVerbatim = false;
+		}
+	}
+
+	if (!inString)
+		return false;
+	if (inInterpolationExpr)
+		return false;
+
+	if (isCharLiteral)
+		return true;
+
+	// The cursor reported by the IDE is the insertion point. At the closing quote
+	// of an empty string, that still means "inside the string".
+	if ((quoteChar == '"') && (src[cursorIdx] == '"') && (!isMultiline))
+		return true;
+
+	return true;
+}
+
 bool BfAutoComplete::IsAutocompleteNode(BfAstNode* node, int lengthAdd, int startAdd)
 {
 	if (mModule == NULL)
@@ -1918,6 +2197,8 @@ void BfAutoComplete::CheckIdentifier(BfAstNode* identifierNode, bool isInExpress
 {
 	if ((identifierNode != NULL) && (!IsAutocompleteNode(identifierNode)))
 		return;
+	if ((mResolveType == BfResolveType_Autocomplete) && (IsCursorInStringLiteral()))
+		return;
 
  	mIdentifierUsed = identifierNode;
 
@@ -2259,6 +2540,9 @@ bool BfAutoComplete::CheckMemberReference(BfAstNode* target, BfAstNode* dotToken
 
 	if ((IsAutocompleteNode(dotToken, 0, 1)) || (isAutocompletingName))
 	{
+		if ((mResolveType == BfResolveType_Autocomplete) && (IsCursorInStringLiteral()))
+			return false;
+
 		BfLogSys(mModule->mSystem, "Triggered autocomplete\n");
 
 		bool isFriend = false;
@@ -2786,6 +3070,8 @@ void BfAutoComplete::CheckInvocation(BfAstNode* invocationNode, BfTokenNode* ope
 void BfAutoComplete::CheckNode(BfAstNode* node, bool mayBeIdentifier, bool isInExpression)
 {
 	if (!IsAutocompleteNode(node))
+		return;
+	if ((mResolveType == BfResolveType_Autocomplete) && (IsCursorInStringLiteral()))
 		return;
 
 	if (auto identifer = BfNodeDynCast<BfIdentifierNode>(node))

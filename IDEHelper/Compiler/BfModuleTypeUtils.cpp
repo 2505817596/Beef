@@ -4821,7 +4821,10 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 					}
 					else if (allowInterfaceMerge)
 					{
-						Fail(StrFormat("Extensions can only specify new interfaces, type '%s' is not a valid ", TypeToString(checkType).c_str()), checkTypeRef);
+						if (partialTypeDef->IsExtension())
+							Fail(StrFormat("Extensions can only specify new interfaces, type '%s' is not a valid interface", TypeToString(checkType).c_str()), checkTypeRef);
+						else
+							Fail(StrFormat("Partial type '%s' cannot specify multiple different base types", TypeToString(typeInstance).c_str()), checkTypeRef);
 					}
 				}
 			}
@@ -4863,11 +4866,19 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 
 			BfTypeInterfaceEntry* found = NULL;
 			bool foundExact = false;
+			auto isSameCombinedPartialDecl = [&](BfTypeDef* declaringType)
+			{
+				if ((!typeDef->mIsCombinedPartial) || (declaringType == NULL) || (declaringType->IsExtension()))
+					return false;
+				return (declaringType == typeDef) || (typeDef->ContainsPartial(declaringType));
+			};
 			for (auto& typeInterfaceInst : typeInstance->mInterfaces)
 			{
 				if (typeInterfaceInst.mInterfaceType == checkInterface)
 				{
-					if (typeInterfaceInst.mDeclaringType == interfaces[iFaceIdx].mDeclaringType)
+					if ((typeInterfaceInst.mDeclaringType == interfaces[iFaceIdx].mDeclaringType) ||
+						(isSameCombinedPartialDecl(typeInterfaceInst.mDeclaringType) &&
+						 isSameCombinedPartialDecl(interfaces[iFaceIdx].mDeclaringType)))
 					{
 						foundExact = true;
 						break;

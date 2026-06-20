@@ -758,6 +758,57 @@ namespace IDE.ui
 				(word == "nameof");
 		}
 
+		bool AutoComplete_IsInBaseTypeList(int32 idx)
+		{
+			var editWidgetContent = (SourceEditWidgetContent)mEditWidget.Content;
+			let data = editWidgetContent.mData;
+
+			bool sawColon = false;
+			int32 scanIdx = idx;
+			String word = scope .();
+			while (scanIdx >= 0)
+			{
+				char32 c = data.mText[scanIdx].mChar;
+				if (AutoComplete.IsIdentifierChar(c))
+				{
+					int32 wordEnd = scanIdx + 1;
+					while ((scanIdx >= 0) && AutoComplete.IsIdentifierChar(data.mText[scanIdx].mChar))
+						scanIdx--;
+					word.Clear();
+					for (int32 wordIdx = scanIdx + 1; wordIdx < wordEnd; wordIdx++)
+						word.Append(data.mText[wordIdx].mChar);
+
+					if (sawColon && ((word == "class") || (word == "struct") || (word == "interface") || (word == "enum") ||
+						(word == "extension") || (word == "where")))
+						return true;
+					continue;
+				}
+
+				if (c == ':')
+				{
+					if ((scanIdx > 0) && (data.mText[scanIdx - 1].mChar == ':'))
+						return false;
+					sawColon = true;
+					scanIdx--;
+					continue;
+				}
+
+				if (c.IsWhiteSpace || (c == '<') || (c == '>') || (c == ',') || (c == '.') ||
+					(c == '*') || (c == '&') || (c == '?') || (c == '[') || (c == ']'))
+				{
+					scanIdx--;
+					continue;
+				}
+
+				if ((c == ';') || (c == '{') || (c == '(') || (c == '}') || (c == '\n'))
+					break;
+
+				return false;
+			}
+
+			return false;
+		}
+
 		bool IsTypingDeclarationName()
 		{
 			var editWidgetContent = (SourceEditWidgetContent)mEditWidget.Content;
@@ -787,6 +838,8 @@ namespace IDE.ui
 			if (prevChar == '.')
 				return false;
 			if ((prevChar == ':') && (prevIdx > 0) && (data.mText[prevIdx - 1].mChar == ':'))
+				return false;
+			if (((prevChar == ':') || (prevChar == ',')) && AutoComplete_IsInBaseTypeList(prevIdx))
 				return false;
 			if ((prevChar == '>') && (prevIdx > 0) && (data.mText[prevIdx - 1].mChar == '-'))
 				return false;
@@ -2161,29 +2214,35 @@ namespace IDE.ui
                     for (var autocompleteLine in autocompleteInfo.Split('\n'))
                     {
                         var lineData = autocompleteLine.Split('\t');
-                        if (lineData.GetNext().Get() == "defLoc")
+						if (!(lineData.GetNext() case .Ok(let entryKind)) || (entryKind != "defLoc"))
+							continue;
+						if (!(lineData.GetNext() case .Ok(let filePath)))
+							continue;
+						if (!(lineData.GetNext() case .Ok(let lineStr)))
+							continue;
+						if (!(lineData.GetNext() case .Ok(let lineCharStr)))
+							continue;
+						if (!(int32.Parse(lineStr) case .Ok(let line)))
+							continue;
+						if (!(int32.Parse(lineCharStr) case .Ok(let lineChar)))
+							continue;
+
+                        bool isDup = false;
+                        for (int defLocationIdx < defLocationFilePaths.Count)
                         {
-                            StringView filePath = lineData.GetNext().Get();
-                            int32 line = int32.Parse(lineData.GetNext().Get());
-                            int32 lineChar = int32.Parse(lineData.GetNext().Get());
-
-                            bool isDup = false;
-                            for (int defLocationIdx < defLocationFilePaths.Count)
+                            if ((defLocationLines[defLocationIdx] == line) && (defLocationLineChars[defLocationIdx] == lineChar) &&
+                                (String.Equals(scope String(defLocationFilePaths[defLocationIdx]), scope String(filePath), Environment.IsFileSystemCaseSensitive ? .Ordinal : .OrdinalIgnoreCase)))
                             {
-                                if ((defLocationLines[defLocationIdx] == line) && (defLocationLineChars[defLocationIdx] == lineChar) &&
-                                    (String.Equals(scope String(defLocationFilePaths[defLocationIdx]), scope String(filePath), Environment.IsFileSystemCaseSensitive ? .Ordinal : .OrdinalIgnoreCase)))
-                                {
-                                    isDup = true;
-                                    break;
-                                }
+                                isDup = true;
+                                break;
                             }
+                        }
 
-                            if (!isDup)
-                            {
-                                defLocationFilePaths.Add(filePath);
-                                defLocationLines.Add(line);
-                                defLocationLineChars.Add(lineChar);
-                            }
+                        if (!isDup)
+                        {
+                            defLocationFilePaths.Add(filePath);
+                            defLocationLines.Add(line);
+                            defLocationLineChars.Add(lineChar);
                         }
                     }
 
@@ -7708,7 +7767,7 @@ namespace IDE.ui
 				}
             }
 
-			if ((mQueuedAutoComplete != null) & (compiler != null) && (!compiler.mThreadWorkerHi.mThreadRunning))
+			if ((mQueuedAutoComplete != null) && (compiler != null) && (!compiler.mThreadWorkerHi.mThreadRunning))
 			{
 				DoAutoComplete(mQueuedAutoComplete.mKeyChar, mQueuedAutoComplete.mOptions);
 				DeleteAndNullify!(mQueuedAutoComplete);
