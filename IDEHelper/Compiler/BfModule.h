@@ -255,6 +255,7 @@ class BfLocalMethod
 {
 public:
 	BfSystem* mSystem;
+	BfContext* mContext;
 	BfModule* mModule;
 	BfSource* mSource;
 	BfMethodDeclaration* mMethodDeclaration;
@@ -269,6 +270,7 @@ public:
 	BfIRMDNode mDeclDIScope;
 	BfMixinState* mDeclMixinState;
 	OwnedVector<BfDirectTypeReference> mDirectTypeRefs;
+	OwnedVector<BfParameterDeclaration> mParamDecls;
 	bool mDeclOnly;
 	bool mDidBodyErrorPass;
 	BfLocalMethod* mNextWithSameName;
@@ -278,6 +280,7 @@ public:
 	{
 		mModule = NULL;
 		mSystem = NULL;
+		mContext = NULL;
 		mSource = NULL;
 		mMethodDeclaration = NULL;
 		mMethodDef = NULL;

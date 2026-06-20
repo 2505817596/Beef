@@ -3937,7 +3937,8 @@ namespace IDE.ui
             int32 startRevision = mData.mCurTextVersionId;
             
             bool doAutocomplete = isCompletionChar;
-			if ((mAutoComplete != null) && (keyChar == '\r') &&
+			if ((mAutoComplete != null) &&
+				((keyChar == '\r') || (keyChar == '\n')) &&
 				((!mIsMultiline) || (mAutoComplete.mIsUserRequested)))
 				doAutocomplete = true;
             bool hasEmptyAutocompleteReplace = true;
@@ -4042,7 +4043,7 @@ namespace IDE.ui
 					doAutocomplete = false;
 				}
 
-				if ((mAutoComplete.mUncertain) && (keyChar != '\t') && (keyChar != '\r'))
+				if ((mAutoComplete.mUncertain) && (keyChar != '\t') && (keyChar != '\r') && (keyChar != '\n'))
 					doAutocomplete = false;
 				if (keyChar == '\x7F') /* Ctrl+Backspace */
 					doAutocomplete = false;

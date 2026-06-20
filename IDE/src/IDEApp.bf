@@ -121,6 +121,14 @@ namespace IDE
 		public static String sRTVersionStr = "042";
 		public const String cVersion = "0.43.6";
 
+#if BF_PLATFORM_LINUX
+		public const uint8[?] cAppIcon = [IgnoreErrors]{ Compiler.ReadBinary("Resources/beeflang.png") };
+
+		[CallingConvention(.Stdcall), CLink]
+		static extern void BFApp_RegisterAppIcon(uint8* imageData, int size);
+#endif
+
+
 #if BF_PLATFORM_WINDOWS
 		public static readonly String sPlatform64Name = "Win64";
 		public static readonly String sPlatform32Name = "Win32";
@@ -144,6 +152,7 @@ namespace IDE
 		public static bool sExitTest;
 
 		public Verbosity mVerbosity = .Default;
+		public List<String> mExtraWorkspacePreprocessorMacros = new .() ~ DeleteContainerAndItems!(_);
 		public BeefVerb mVerb;
 		public bool mDbgCompileDump;
 		public int mDbgCompileIdx = -1;
@@ -156,6 +165,7 @@ namespace IDE
 		public String mDeferredRelaunchCmd ~ delete _;
 		public int? mTargetExitCode;
 		public FileVersionInfo mVersionInfo ~ delete _;
+		public uint64 mCompilerId = ((uint64)Process.CurrentId << 32) ^ (uint64)Platform.BfpSystem_GetTimeStamp();
 
 		//public ToolboxPanel mToolboxPanel;
 		public Monitor mMonitor = new Monitor() ~ delete _;
@@ -188,7 +198,6 @@ namespace IDE
 		public DarkDockingFrame mDockingFrame;
 		public MainFrame mMainFrame;
 		public GlobalUndoManager mGlobalUndoManager = new GlobalUndoManager() ~ delete _;
-		public SourceControl mSourceControl = new SourceControl() ~ delete _;
 		public GitManager mGitManager = new .() ~ delete _;
 
 		public WidgetWindow mPopupWindow;
@@ -373,6 +382,14 @@ namespace IDE
 
 		class LaunchData
 		{
+			public enum Kind
+			{
+				Normal,
+				GDB,
+				GDB_WSL
+			}
+
+			public Kind mKind;
 			public String mTargetPath ~ delete _;
 			public String mArgs ~ delete _;
 			public String mWorkingDir ~ delete _;
@@ -1531,8 +1548,6 @@ namespace IDE
 
 			if (Utils.WriteTextFile(path, useText) case .Err)
 			{
-				if (gApp.mSettings.mEditorSettings.mPerforceAutoCheckout)
-					mSourceControl.Checkout(path);
 				Thread.Sleep(10);
 				if (Utils.WriteTextFile(path, useText) case .Err)
 				{
@@ -6049,7 +6064,13 @@ namespace IDE
 		{
 			scope AutoBeefPerf("IDEApp.CreateMenu");
 
-			SysMenu root = mMainWindow.mSysMenu;
+			SysMenu root;
+#if BF_PLATFORM_WINDOWS
+			root = mMainWindow.mSysMenu;
+#else
+			root = mMainFrame.mMenuBar.mSysMenuRoot;
+			defer mMainFrame.RehupSize();
+#endif
 
 			String keyStr = scope String();
 
@@ -6133,11 +6154,18 @@ namespace IDE
 
 			void AddLineEndingKind(String name, LineEndingKind lineEndingKind)
 			{
+				bool allowLast;
+#if !BF_PLATFORM_WINDOWS
+				allowLast = true;
+#else
+				allowLast = false;
+#endif
+
 				lineEndingMenu.AddMenuItem(name, null,
 					new (menu) =>
 					{
 						var sysMenu = (SysMenu)menu;
-						var sourceViewPanel = GetActiveSourceViewPanel();
+						var sourceViewPanel = GetActiveSourceViewPanel(allowLast);
 						if (sourceViewPanel != null)
 						{
 							if (sourceViewPanel.mEditData.mLineEndingKind != lineEndingKind)
@@ -6152,7 +6180,7 @@ namespace IDE
 					{
 						var sysMenu = (SysMenu)menu;
 
-						var sourceViewPanel = GetActiveSourceViewPanel();
+						var sourceViewPanel = GetActiveSourceViewPanel(allowLast);
 						if (sourceViewPanel != null)
 						{
 							sysMenu.Modify(null, null, null, true, (sourceViewPanel.mEditData.mLineEndingKind == lineEndingKind) ? 1 : 0, true);
@@ -7328,6 +7356,8 @@ namespace IDE
 			if ((setFocus) && (sourceViewPanel.mWidgetWindow != null))
 				sourceViewPanel.FocusEdit();
 
+			mErrorsPanel?.OnSourceViewOpened();
+
 			return (sourceViewPanel, newTabButton);
 		}
 
@@ -7641,6 +7671,8 @@ namespace IDE
 					documentTabbedView.GetActiveTab().Activate();
 				}
 			}
+
+			mErrorsPanel?.OnSourceViewClosed();
 
 			//var intDict = scope Dictionary<String, int>();
 
@@ -8147,6 +8179,13 @@ namespace IDE
 			{
 				if (mLaunchData.mArgs != null)
 				{
+					if (mLaunchData.mTargetPath == null)
+					{
+						mLaunchData.mTargetPath = new .();
+						mLaunchData.mTargetPath.Append(key);
+						return true;
+					}
+
 					if (!mLaunchData.mArgs.IsEmpty)
 						mLaunchData.mArgs.Append(" ");
 					mLaunchData.mArgs.Append(key);
@@ -8182,9 +8221,23 @@ namespace IDE
 					mWantsClean = true;
 				case "-dbgCompileDump":
 					mDbgCompileDump = true;
+				case "-gdb":
+					if (mLaunchData == null)
+						mLaunchData = new .();
+					mLaunchData.mKind = .GDB;
+					mLaunchData.mPaused = true;
+				case "-gdb_wsl":
+					if (mLaunchData == null)
+						mLaunchData = new .();
+					if (mLaunchData.mArgs == null)
+						mLaunchData.mArgs = new .();
+					mLaunchData.mKind = .GDB_WSL;
+					mLaunchData.mPaused = true;
 				case "-launch":
 					if (mLaunchData == null)
 						mLaunchData = new .();
+					if (mLaunchData.mArgs == null)
+						mLaunchData.mArgs = new .();
 				case "-launchPaused":
 					if (mLaunchData != null)
 						mLaunchData.mPaused = true;
@@ -8795,6 +8848,20 @@ namespace IDE
 				window.mFocusWidget?.KeyDown(evt);
 				evt.mHandled = true;
 			}
+
+#if !BF_PLATFORM_WINDOWS
+			if (evt.mKeyFlags.HeldKeys == .Alt)
+			{
+				for (var btn in mMainFrame.mMenuBar.mButtons)
+				{
+					if (evt.mKeyCode == btn.MenuKey)
+					{
+						mMainFrame.mMenuBar.ShowMenu(btn);
+						break;
+					}
+				}
+			}
+#endif
 		}
 
 		void SysKeyUp(KeyCode keyCode)
@@ -9267,7 +9334,15 @@ namespace IDE
 		{
 			//Debug.Assert(executionInstance == null);
 
+			bool isWSL = false;
+
 			String fileName = scope String(inFileName);
+			if (fileName == "@wsl")
+			{
+				isWSL = true;
+				fileName.Set("wsl.exe");
+			}
+
 			QuoteIfNeeded(fileName);
 
 			ProcessStartInfo startInfo = scope ProcessStartInfo();
@@ -9338,6 +9413,12 @@ namespace IDE
 				String tempFileName = scope String();
 				Path.GetTempFileName(tempFileName);
 
+				if (isWSL)
+				{
+					tempFileName.Replace(".tmp", "");
+					tempFileName.Append(".sh");
+				}
+
 				Encoding encoding = Encoding.UTF8;
 				if (useArgsFile == .UTF16WithBom)
 					encoding = Encoding.UTF16WithBOM;
@@ -9346,11 +9427,31 @@ namespace IDE
 				if (result case .Err)
 					OutputLine("Failed to create temporary param file");
 				String arguments = scope String();
-				arguments.Concat("@", tempFileName);
-				startInfo.SetArguments(arguments);
+
+				if (isWSL)
+				{
+					arguments.Append(tempFileName);
+					IDEUtils.WSLPathFix(arguments);
+					startInfo.SetArguments(arguments);
+				}
+				else
+				{
+					arguments.Concat("@", tempFileName);
+					startInfo.SetArguments(arguments);
+				}
 
 				delete executionInstance.mTempFileName;
 				executionInstance.mTempFileName = new String(tempFileName);
+			}
+			else
+			{
+				if (isWSL)
+				{
+					String arguments = scope .();
+					arguments.Append("-- ");
+					arguments.Append(args);
+					startInfo.SetArguments(arguments);
+				}
 			}
 
 			if (mVerbosity >= .Detailed)
@@ -9600,7 +9701,12 @@ namespace IDE
 				waitForBuildClang = (mDepClang.mCompileWaitsForQueueEmpty) && (mDepClang.HasQueuedCommands());
 #endif
 				if ((next is ProcessBfCompileCmd) && (mBfBuildCompiler.HasQueuedCommands() || (waitForBuildClang)))
+				{
+					var processCompileCmd = (ProcessBfCompileCmd)next;
+					if (processCompileCmd.mBfPassInstance != null)
+						ShowBeefCompileMessages(processCompileCmd.mBfPassInstance);
 					return;
+				}
 
 				/*if (next is BuildCompletedCmd)
 				{
@@ -10275,6 +10381,7 @@ namespace IDE
 			AddMacros(options.mBeefOptions.mPreprocessorMacros);
 			AddMacros(mWorkspace.mBeefGlobalOptions.mPreprocessorMacros);
 			AddMacros(workspaceOptions.mPreprocessorMacros);
+			AddMacros(mExtraWorkspacePreprocessorMacros);
 			GetBeefPreprocessorMacros(preprocessorMacros);
 
 			var optimizationLevel = workspaceOptions.mBfOptimizationLevel;
@@ -10810,6 +10917,15 @@ namespace IDE
 									{
 										newString = scope:ReplaceBlock .();
 										args[0].Quote(newString);
+									}
+									else
+										cmdErr = "Invalid number of arguments";
+								case "WSLPath":
+									if (args.Count == 1)
+									{
+										newString = scope:ReplaceBlock .();
+										newString.Set(args[0]);
+										IDEUtils.WSLPathFix(newString);
 									}
 									else
 										cmdErr = "Invalid number of arguments";
@@ -11773,6 +11889,82 @@ namespace IDE
 			mDeferredCompilerText.Clear();
 		}
 
+		void ShowBeefCompileMessages(BfPassInstance passInstance)
+		{
+			while (true)
+			{
+				String str = scope String();
+				if (!passInstance.PopOutString(str))
+					break;
+
+				if (mVerbosity == .Quiet)
+					continue;
+
+				if (str.StartsWith(":mark "))
+				{
+					int crPos = str.IndexOf('\n');
+					if (crPos != -1)
+					{
+						var sv = str.Substring(":mark ".Length, crPos - ":mark ".Length);
+						int32 markId = int32.Parse(sv).GetValueOrDefault();
+						mOutputPanel?.Mark(markId);
+					}
+					str.Remove(0, crPos + 1);
+				}
+				else if (str.StartsWith(":mark_undo "))
+				{
+					int crPos = str.IndexOf('\n');
+					if (crPos != -1)
+					{
+						var sv = str.Substring(":mark_undo ".Length, crPos - ":mark_undo ".Length);
+						int32 markId = int32.Parse(sv).GetValueOrDefault();
+						mOutputPanel?.MarkUndo(markId);
+					}
+					str.Remove(0, crPos + 1);
+				}
+
+				if (str.StartsWith(":"))
+				{
+					int spacePos = str.IndexOf(' ');
+					if (spacePos > 0)
+					{
+						bool wantsDisp = true;
+						StringView msgType = StringView(str, 0, spacePos);
+						if (msgType == ":warn")
+						{
+							mLastCompileHadMessages = true;
+							wantsDisp = mVerbosity >= .Minimal;
+						}
+						else if (msgType == ":error")
+						{
+							mLastCompileHadMessages = true;
+						}
+						else if (msgType == ":low")
+							wantsDisp = mVerbosity >= .Detailed;
+						else if (msgType == ":med")
+							wantsDisp = mVerbosity >= .Normal;
+						else if ((msgType == ":text") || (msgType == ":text_line"))
+						{
+							mDeferredCompilerText.Append(str.Substring(spacePos + 1));
+							FlushDeferredCompilerText(msgType == ":text_line");
+							continue;
+						}
+
+						if (!wantsDisp)
+							continue;
+
+						str.Remove(0, spacePos + 1);
+					}
+				}
+
+				FlushDeferredCompilerText(true);
+
+				str.Append("\n");
+				OutputSmart(str);
+				//OutputLine(str);
+			}
+		}
+
 		void ProcessBeefCompileResults(BfPassInstance passInstance, CompileKind compileKind, Project hotProject, Stopwatch startStopWatch)
 		{
 			bool didCompileSucceed = true;
@@ -11781,55 +11973,7 @@ namespace IDE
 				if (mProfileCompileProfileId != 0)
 					mProfileCompileProfileId.Dispose();
 
-				while (true)
-				{
-					String str = scope String();
-					if (!passInstance.PopOutString(str))
-						break;
-
-					if (mVerbosity == .Quiet)
-						continue;
-
-					if (str.StartsWith(":"))
-					{
-						int spacePos = str.IndexOf(' ');
-						if (spacePos > 0)
-						{
-							bool wantsDisp = true;
-							StringView msgType = StringView(str, 0, spacePos);
-							if (msgType == ":warn")
-							{
-								mLastCompileHadMessages = true;
-								wantsDisp = mVerbosity >= .Minimal;
-							}
-							else if (msgType == ":error")
-							{
-								mLastCompileHadMessages = true;
-							}
-							else if (msgType == ":low")
-								wantsDisp = mVerbosity >= .Detailed;
-							else if (msgType == ":med")
-								wantsDisp = mVerbosity >= .Normal;
-							else if ((msgType == ":text") || (msgType == ":text_line"))
-							{
-								mDeferredCompilerText.Append(str.Substring(spacePos + 1));
-								FlushDeferredCompilerText(msgType == ":text_line");
-								continue;
-							}
-
-							if (!wantsDisp)
-								continue;
-
-							str.Remove(0, spacePos + 1);
-						}
-					}
-
-					FlushDeferredCompilerText(true);
-
-					str.Append("\n");
-					OutputSmart(str);
-					//OutputLine(str);
-				}
+				ShowBeefCompileMessages(passInstance);
 
 				if ((passInstance.mFailed) && (passInstance.mCompileSucceeded))
 				{
@@ -12246,6 +12390,8 @@ namespace IDE
 					canCompile = true; // Use WSL
 			case .Wasm:
 				canCompile = true;
+			case .None:
+				canCompile = true;
 			default:
 			}
 
@@ -12363,7 +12509,7 @@ namespace IDE
 						Beef requires the Microsoft C++ build tools for Visual Studio 2013 or later, but they don't seem to be installed.
 
 						Install just Microsoft Visual C++ Build Tools or the entire Visual Studio suite from:
-						    https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022
+						    https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2026
 						""";
 
 #if CLI
@@ -12374,7 +12520,7 @@ namespace IDE
 					dlg.AddOkCancelButtons(new (dlg) =>
 						{
 							ProcessStartInfo psi = scope ProcessStartInfo();
-							psi.SetFileName("https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022");
+							psi.SetFileName("https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2026");
 							psi.UseShellExecute = true;
 							psi.SetVerb("Open");
 							var process = scope SpawnedProcess();
@@ -12393,6 +12539,37 @@ namespace IDE
 			if (mProfileCompile)
 				mProfileCompileProfileId = Profiler.StartSampling("Compile");
 
+			var compilerCacheFilePath = scope String();
+			GetWorkspaceBuildDir(compilerCacheFilePath);
+			Directory.CreateDirectory(compilerCacheFilePath).IgnoreError();
+			compilerCacheFilePath.Append("/cache.dat");
+
+			// Validate compiler cache - perform a clean build if a different compiler instance modified the files in the workspace build directory
+			const uint64 cacheMagic = 0xBEEF0001;
+			(uint64 magic, uint64 id) cacheData = default;
+			int32 cacheSize = sizeof(decltype(cacheData));
+			if ((workspaceOptions.mIncrementalBuild) && (mCompileSinceCleanCount > 0))
+			{
+				bool cacheValid = false;
+				List<uint8> fileData = scope .();
+				File.ReadAll(compilerCacheFilePath, fileData).IgnoreError();
+				if (fileData.Count == cacheSize)
+				{
+					Internal.MemCpy(&cacheData, fileData.Ptr, cacheSize);
+					if ((cacheData.magic == cacheMagic) && (cacheData.id == mCompilerId))
+						cacheValid = true;
+				}
+
+				if (!cacheValid)
+				{
+					OutputLine("Compiler cache invalid, performing clean rebuild");
+					mWantsBeefClean = true;
+				}
+			}
+			cacheData.magic = cacheMagic;
+			cacheData.id = mCompilerId;
+			File.WriteAll(compilerCacheFilePath, .((uint8*)(void*)&cacheData, cacheSize)).IgnoreError();
+			
 			if (mWantsBeefClean)
 			{
 				// We must finish cleaning before we can compile
@@ -12514,6 +12691,12 @@ namespace IDE
 					}
 				});
 
+			dbgVis.AppendF($"\n{mInstallDir}");
+			for (var project in mWorkspace.mProjects)
+			{
+				dbgVis.AppendF($"\n{project.mProjectDir}{IDE.IDEUtils.cNativeSlash}");
+			}
+
 			mDebugger.LoadDebugVisualizers(dbgVis);
 			//mDebugger.LoadDebugVisualizers(scope String(mInstallDir, "BeefDbgVis.toml"));
 		}
@@ -12542,6 +12725,8 @@ namespace IDE
 			mTargetHadFirstBreak = false;
 
 			//options.mDebugOptions.mCommand
+
+			var platformType = Workspace.PlatformType.GetFromName(mPlatformName, workspaceOptions.mTargetTriple);
 
 			String launchPathRel = scope String();
 			ResolveConfigString(mPlatformName, workspaceOptions, project, options, options.mDebugOptions.mCommand, "debug command", launchPathRel);
@@ -12632,6 +12817,21 @@ namespace IDE
 
 			if ((mSettings.mDebugConsoleKind == .RedirectToImmediate) || (mSettings.mDebugConsoleKind == .RedirectToOutput))
 				openFileFlags |= .RedirectStdOutput | .RedirectStdError;
+
+			//
+
+			if (platformType.IsWSL)
+			{
+				//IDEUtils.WSLPathFix(launchPath);
+				launchPath.Append("@gdb_wsl");
+			}
+			else if (!launchPath.Contains('@'))
+			{
+				if (mSettings.mDebuggerSettings.mDebuggerKind == .GDB)
+					launchPath.Append("@gdb");
+				else if (mSettings.mDebuggerSettings.mDebuggerKind == .LLDB)
+					launchPath.Append("@lldb");
+			}
 
 			if (!mDebugger.OpenFile(launchPath, targetPath, arguments, workingDir, envBlock, wasCompiled, workspaceOptions.mAllowHotSwapping, openFileFlags))
 			{
@@ -12921,6 +13121,10 @@ namespace IDE
 
 			mGitManager.Init();
 
+#if BF_PLATFORM_LINUX && LINUX_PACKAGE
+			mUserDataDir = new $"{Environment.GetEnvironmentVariable("HOME", .. scope .())}/.config/beeflang/";
+#endif
+
 			//Yoop();
 
 			/*for (int i = 0; i < 100*1024*1024; i++)
@@ -12960,7 +13164,8 @@ namespace IDE
 #endif
 			}
 
-			Font.AddFontFailEntry("Segoe UI", scope String()..AppendF("{}fonts/NotoSans-Regular.ttf", mInstallDir));
+			Font.AddFontFailEntry("Segoe UI", scope $"Noto Sans\0{mInstallDir}fonts/NotoSans-Regular.ttf");
+			Font.AddFontFailEntry("Segoe UI Bold", scope $"Noto Sans Bold\0{mInstallDir}fonts/NotoSans-Bold.ttf");
 
 			DarkTheme aTheme = new DarkTheme();
 			mSettings.mUISettings.Apply(); // Apply again to set actual theme
@@ -13117,6 +13322,11 @@ namespace IDE
 					flags, mMainFrame);
 			}
 
+#if BF_PLATFORM_LINUX
+			let icon = (Span<uint8>)cAppIcon;
+			BFApp_RegisterAppIcon(icon.Ptr, icon.Length);
+#endif
+
 			if (mIsFirstRun)
 			{
 				// If this is our first time running, set up a scale based on DPI
@@ -13199,7 +13409,18 @@ namespace IDE
 						CompileAndRun(true);
 				}
 				else
+				{
+					switch (mLaunchData.mKind)
+					{
+					case .GDB:
+						mLaunchData.mTargetPath.Append("@gdb");
+					case .GDB_WSL:
+						mLaunchData.mTargetPath.Append("@gdb_wsl");
+					default:
+					}
+					
 					LaunchDialog.DoLaunch(null, mLaunchData.mTargetPath, mLaunchData.mArgs ?? "", mLaunchData.mWorkingDir ?? "", "", mLaunchData.mPaused, true);
+				}
 			}
 
 			mInitialized = true;
@@ -13760,7 +13981,7 @@ namespace IDE
 						((mBfResolveCompiler == null) || (!mBfResolveCompiler.HasQueuedCommands())))
 					{
 						didClean = true;
-						OutputLine("Cleaned Beef.");
+						OutputLine("Cleaned Beef");
 
 						if (mErrorsPanel != null)
 							mErrorsPanel.ClearParserErrors(null);
@@ -13772,7 +13993,9 @@ namespace IDE
 						DeleteAndNullify!(mBfBuildSystem);
 
 						///
+#if BF_PLATFORM_WINDOWS
 						mDebugger.FullReportMemory();
+#endif
 
 						var workspaceBuildDir = scope String();
 						GetWorkspaceBuildDir(workspaceBuildDir);

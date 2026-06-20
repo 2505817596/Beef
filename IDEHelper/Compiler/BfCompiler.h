@@ -196,6 +196,15 @@ public:
 			return false;
 #endif
 		}
+
+		bool IsWSL()
+		{
+#ifdef BF_PLATFORM_WINDOWS
+			return mPlatformType == BfPlatformType_Linux;
+#else
+			return false;
+#endif
+		}
 	};
 	Options mOptions;
 
@@ -406,6 +415,11 @@ public:
 	BfTypeDef* mIOnTypeDoneTypeDef;
 	BfTypeDef* mIOnFieldInitTypeDef;
 	BfTypeDef* mIOnMethodInitTypeDef;
+
+	BfTypeDef* mCompilerOptionsPlatformTypeTypeDef;
+	BfTypeDef* mCompilerOptionsMachineTypeTypeDef;
+	BfTypeDef* mCompilerOptionsToolsetTypeTypeDef;
+	BfTypeDef* mCompilerOptionsOptLevelTypeDef;
 
 	BfTypeDef* mMethodRefTypeDef;
 	BfTypeDef* mNullableTypeDef;

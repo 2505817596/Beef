@@ -1625,6 +1625,7 @@ public:
 
 	BfSystem* mSystem;
 	BfCompiler* mCompiler;
+	CritSect mCritSect;
 	bool mTrimMessagesToCursor;
 	int mFailedIdx;
 	int mWarnIdx;
@@ -1635,7 +1636,10 @@ public:
 	int mIgnoreCount;
 	int mWarningCount;
 	int mDeferredErrorCount;
-	Deque<String> mOutStream;
+	int mOutputMarkId;
+	bool mDidMark;
+	int mReadIdx;
+	Array<String> mOutStream;
 	bool mLastWasDisplayed;
 	bool mLastWasAdded;
 	uint8 mClassifierPassId;
@@ -1643,22 +1647,7 @@ public:
 	bool mHadSignatureChanges;
 
 public:
-	BfPassInstance(BfSystem* bfSystem)
-	{
-		mTrimMessagesToCursor = false;
-		mFailedIdx = 0;
-		mWarnIdx = 0;
-		mSystem = bfSystem;
-		mCompiler = NULL;
-		mLastWasDisplayed = false;
-		mLastWasAdded = false;
-		mClassifierPassId = 0;
-		mWarningCount = 0;
-		mDeferredErrorCount = 0;
-		mIgnoreCount = 0;
-		mHadSignatureChanges = false;
-	}
-
+	BfPassInstance(BfSystem* bfSystem);
 	~BfPassInstance();
 
 	StateInfo GetState();

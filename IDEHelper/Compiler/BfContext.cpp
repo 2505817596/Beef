@@ -1276,6 +1276,8 @@ void BfContext::RebuildType(BfType* type, bool deleteOnDemandTypes, bool rebuild
 		}
 	}
 
+	typeInst->RemoveMethodsFromCEMachine();
+
 	//typeInst->mTypeDef->ClearEmitted();
 	for (auto localMethod : typeInst->mOwnedLocalMethods)
 		delete localMethod;
@@ -1295,7 +1297,7 @@ void BfContext::RebuildType(BfType* type, bool deleteOnDemandTypes, bool rebuild
 			genericTypeInstance->mGenericTypeInfo->mGenericExtensionInfo->Clear();
 		genericTypeInstance->mGenericTypeInfo->mProjectsReferenced.Clear();
 	}
-
+	
 	typeInst->mStaticSearchMap.Clear();
 	typeInst->mInternalAccessMap.Clear();
 	typeInst->mInterfaces.Clear();
@@ -1912,22 +1914,7 @@ void BfContext::DeleteType(BfType* type, bool deferDepRebuilds)
  	BfLogSysM("Deleting Type: %p %s\n", type, mScratchModule->TypeToString(type).c_str());
 
 	if (typeInst != NULL)
-	{
-		for (auto& methodInstGroup : typeInst->mMethodInstanceGroups)
-		{
-			if ((methodInstGroup.mDefault != NULL) && (methodInstGroup.mDefault->mInCEMachine))
-				mCompiler->mCeMachine->RemoveMethod(methodInstGroup.mDefault);
-			if (methodInstGroup.mMethodSpecializationMap != NULL)
-			{
-				for (auto& methodSpecializationItr : *methodInstGroup.mMethodSpecializationMap)
-				{
-					auto methodInstance = methodSpecializationItr.mValue;
-					if (methodInstance->mInCEMachine)
-						mCompiler->mCeMachine->RemoveMethod(methodInstance);
-				}
-			}
-		}
-	}
+		typeInst->RemoveMethodsFromCEMachine();
 
 	// All dependencies cause rebuilds when we delete types
 	if (dType != NULL)
@@ -3056,14 +3043,19 @@ void BfContext::VerifyTypeLookups()
 //  actively referenced previously, this method will generate BfMethodSpecializationRequest for all used
 //  methods from previously-built modules
 void BfContext::QueueMethodSpecializations(BfTypeInstance* typeInst, bool checkSpecializedMethodRebuildFlag)
-{
-	BF_ASSERT(!typeInst->IsDeleting());
-
+{		
 	BP_ZONE("BfContext::QueueMethodSpecializations");
 
 	auto module = typeInst->mModule;
 	if (module == NULL)
 		return;
+
+	if (typeInst->IsDeleting())
+	{
+		mCompiler->RequestExtraCompile();
+		module->InternalError("QueueMethodSpecializations using deleted type");
+		return;
+	}
 
 	BfLogSysM("QueueMethodSpecializations typeInst %p module %p\n", typeInst, module);
 

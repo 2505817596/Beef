@@ -358,6 +358,9 @@ namespace BeefBuild
 					}
 					Fail(scope String()..AppendF("Unsupported intermediate backend '{}'. Supported: cpp", value));
 					return true;
+				case "-define":
+					mExtraWorkspacePreprocessorMacros.Add(new .(value));
+					return true;
 				}
 			}
 

@@ -5930,7 +5930,10 @@ BfTypedValue BfExprEvaluator::LoadField(BfAstNode* targetSrc, BfTypedValue targe
 				unionTypedValue = mModule->MakeAddressable(unionTypedValue);
 			BfIRType llvmPtrType = mModule->mBfIRBuilder->GetPointerTo(mModule->mBfIRBuilder->MapType(resolvedFieldType));
 			retVal.mValue = mModule->mBfIRBuilder->CreateBitCast(unionTypedValue.mValue, llvmPtrType);
-			retVal.mKind = unionTypedValue.mKind;
+			if (unionTypedValue.IsAddr())
+				retVal.mKind = unionTypedValue.mKind;
+			else
+				retVal.mKind = BfTypedValueKind_ReadOnlyAddr;
 		}
 	}
 
@@ -15284,6 +15287,7 @@ BfLambdaInstance* BfExprEvaluator::GetLambdaInstance(BfLambdaBindExpression* lam
 			BfLocalMethod* localMethod = new BfLocalMethod();
 			localMethod->mMethodName = "anon";
 			localMethod->mSystem = mModule->mSystem;
+			localMethod->mContext = mModule->mContext;
 			localMethod->mModule = mModule;
 
 			localMethod->mExpectedFullName = mModule->GetLocalMethodName(localMethod->mMethodName, lambdaBindExpr->mFatArrowToken, mModule->mCurMethodState, mModule->mCurMethodState->mMixinState);
@@ -18722,8 +18726,8 @@ void BfExprEvaluator::InjectMixin(BfAstNode* targetSrc, BfTypedValue target, boo
 
 				exprEvaluator->FinishExpressionResult();
 				arg.mTypedValue = mModule->LoadValue(arg.mTypedValue);
-				arg.mTypedValue = mModule->Cast(arg.mExpression, arg.mTypedValue, wantType);
-
+				if (arg.mTypedValue)
+					arg.mTypedValue = mModule->Cast(arg.mExpression, arg.mTypedValue, wantType);
 				if (arg.mTypedValue)
 				{
 					auto argValue = mModule->LoadOrAggregateValue(arg.mTypedValue);

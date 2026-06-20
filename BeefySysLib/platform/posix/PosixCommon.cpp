@@ -1520,6 +1520,10 @@ BFP_EXPORT BfpSpawn* BFP_CALLTYPE BfpSpawn_Create(const char* inTargetPath, cons
         else
             result = execv(targetPath.c_str(), (char* const*)&argvArr[0]);
 
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        close(STDIN_FILENO);
+
         BFP_ERRPRINTF("Couldn't execute %s\n", targetPath.c_str());
 
         exit(-1);
@@ -3091,12 +3095,12 @@ BFP_EXPORT void BFP_CALLTYPE BfpFile_GetFullPath(const char* inPath, char* outPa
 
     if (inPath[0] == '/')
     {
-        str = inPath;
+        str = GetAbsPath(inPath, "/");
     }
     else
     {
         char* cwdPtr = getcwd(NULL, 0);
-    Beefy::String cwdPath = cwdPtr;
+        Beefy::String cwdPath = cwdPtr;
         free(cwdPtr);
         str = GetAbsPath(inPath, cwdPath);
     }
@@ -3196,7 +3200,7 @@ BFP_EXPORT void BFP_CALLTYPE BfpFile_GetActualPath(const char* inPathC, char* ou
         String parentPath;
         String componentName;
         int32 lastSep = subName.LastIndexOf(DIR_SEP_CHAR);
-        
+
         if (lastSep != -1)
         {
             parentPath = subName.Substring(0, lastSep);
@@ -3217,7 +3221,7 @@ BFP_EXPORT void BFP_CALLTYPE BfpFile_GetActualPath(const char* inPathC, char* ou
             struct dirent* entry = NULL;
             while ((entry = readdir(dir)) != NULL)
             {
-                // Linux is case-sensitive, but we do a case-insensitive comparison 
+                // Linux is case-sensitive, but we do a case-insensitive comparison
                 // to help find the correct case for the file
                 if (strcasecmp(entry->d_name, componentName.c_str()) == 0)
                 {

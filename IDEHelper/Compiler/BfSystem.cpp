@@ -1219,6 +1219,26 @@ bool BfErrorEntry::operator==(const BfErrorEntry& other) const
 
 //////////////////////////////////////////////////////////////////////////
 
+int32 sMarkId = 1;
+BfPassInstance::BfPassInstance(BfSystem* bfSystem)
+{
+	mOutputMarkId = (int32)BfpSystem_InterlockedExchangeAdd32((uint32*)&sMarkId, 1);
+	mReadIdx = 0;
+	mDidMark = false;
+	mTrimMessagesToCursor = false;
+	mFailedIdx = 0;
+	mWarnIdx = 0;
+	mSystem = bfSystem;
+	mCompiler = NULL;
+	mLastWasDisplayed = false;
+	mLastWasAdded = false;
+	mClassifierPassId = 0;
+	mWarningCount = 0;
+	mDeferredErrorCount = 0;
+	mIgnoreCount = 0;
+	mHadSignatureChanges = false;
+}
+
 BfPassInstance::~BfPassInstance()
 {
 	for (auto bfError : mErrors)
@@ -1227,6 +1247,8 @@ BfPassInstance::~BfPassInstance()
 
 BfPassInstance::StateInfo BfPassInstance::GetState()
 {
+	AutoCrit autoCrit(mCritSect);
+
 	StateInfo stateInfo;
 	stateInfo.mOutStreamSize = (int)mOutStream.mSize;
 	stateInfo.mErrorsSize = mErrors.mSize;
@@ -1239,8 +1261,12 @@ BfPassInstance::StateInfo BfPassInstance::GetState()
 
 void BfPassInstance::RestoreState(StateInfo stateInfo)
 {
+	AutoCrit autoCrit(mCritSect);
+
 	while (mOutStream.mSize > stateInfo.mOutStreamSize)
 		mOutStream.pop_back();
+		
+	mReadIdx = 0;	
 
 	while (mErrors.mSize > stateInfo.mErrorsSize)
 	{
@@ -1258,6 +1284,8 @@ void BfPassInstance::RestoreState(StateInfo stateInfo)
 
 void BfPassInstance::ClearErrors()
 {
+	AutoCrit autoCrit(mCritSect);
+
 	mFailedIdx = 0;
 	for (auto bfError : mErrors)
 		delete bfError;
@@ -1282,16 +1310,35 @@ bool BfPassInstance::HasMessages()
 
 void BfPassInstance::OutputLine(const StringImpl& str)
 {
+	AutoCrit autoCrit(mCritSect);
+
 	//OutputDebugStrF("%s\n", str.c_str());
 	mOutStream.push_back(str);
 }
 
 bool BfPassInstance::PopOutString(String* outString)
 {
-	if (mOutStream.size() == 0)
+	AutoCrit autoCrit(mCritSect);
+
+	if (mReadIdx >= mOutStream.size())
 		return false;
-	*outString = mOutStream.front();
-	mOutStream.RemoveAt(0);
+	
+	*outString = mOutStream[mReadIdx++];
+
+	if (mReadIdx == 1)
+	{	
+		if (!mDidMark)
+		{
+			outString->Insert(0, StrFormat(":mark %d\n", mOutputMarkId));
+			mDidMark = true;
+		}
+		else
+		{
+			outString->Insert(0, StrFormat(":mark_undo %d\n", mOutputMarkId));
+		}
+		
+	}
+
 	return true;
 }
 

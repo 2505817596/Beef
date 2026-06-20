@@ -3,6 +3,10 @@
 #include "BeefySysLib/util/BeefPerf.h"
 #include "BeefySysLib/util/Hash.h"
 
+#ifdef _DEBUG
+#define BE_EXTRA_CHECKS
+#endif
+
 #ifdef BF_PLATFORM_WINDOWS
 #include <io.h>
 #endif
@@ -25,6 +29,7 @@
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/ModRef.h"
 #include "llvm/TargetParser/Host.h"
 //#include "llvm/Support/Dwarf.h"
 #include "llvm/IR/DIBuilder.h"
@@ -86,7 +91,7 @@
 #include "llvm/Transforms/IPO/FunctionAttrs.h"
 #include "llvm/Transforms/IPO/InferFunctionAttrs.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
-#include "llvm/Transforms/Instrumentation.h"
+#include "llvm/Transforms/Utils/Instrumentation.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
 //#include "llvm/Transforms/Vectorize.h"
@@ -107,6 +112,7 @@
 
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/TargetRegistry.h"
 
 #include "llvm/LTO/LTOBackend.h"
@@ -256,7 +262,6 @@ static llvm::Attribute::AttrKind LLVMMapAttribute(BfIRAttribute attr)
 	{
 	case BfIRAttribute_NoReturn: return llvm::Attribute::NoReturn;
 	case BfIRAttribute_NoAlias: return llvm::Attribute::NoAlias;
-	case BfIRAttribute_NoCapture: return llvm::Attribute::NoCapture;
 	case BfIRAttribute_StructRet: return llvm::Attribute::StructRet;
 	case BfIRAttribute_ZExt: return llvm::Attribute::ZExt;
 	case BFIRAttribute_NoUnwind: return llvm::Attribute::NoUnwind;
@@ -1791,7 +1796,7 @@ bool BfIRCodeGen::TryMemCpy(const BfIRTypedValue& ptr, llvm::Value* val)
 {
 	auto valType = val->getType();
 
-	auto dataLayout = llvm::DataLayout(mLLVMModule);
+	auto& dataLayout = mLLVMModule->getDataLayout();
 	int arrayBytes = (int)dataLayout.getTypeSizeInBits(valType) / 8;
 
 	// LLVM has perf issues with large aggregates - it treats each element as a unique value,
@@ -1935,7 +1940,7 @@ llvm::Value* BfIRCodeGen::DoCheckedIntrinsic(llvm::Intrinsic::ID intrin, llvm::V
 
 	CmdParamVec<llvm::Type*> useParams;
 	useParams.push_back(lhs->getType());
-	auto func = llvm::Intrinsic::getDeclaration(mLLVMModule, intrin, useParams);
+	auto func = llvm::Intrinsic::getOrInsertDeclaration(mLLVMModule, intrin, useParams);
 
 	CmdParamVec<llvm::Value*> args;
 	args.push_back(lhs);
@@ -1958,7 +1963,7 @@ llvm::Value* BfIRCodeGen::DoCheckedIntrinsic(llvm::Intrinsic::ID intrin, llvm::V
 		mActiveFunction->insert(mActiveFunction->end(), failBB);
 		mIRBuilder->SetInsertPoint(failBB);
 
-		auto trapDecl = llvm::Intrinsic::getDeclaration(mLLVMModule, llvm::Intrinsic::trap);
+		auto trapDecl = llvm::Intrinsic::getOrInsertDeclaration(mLLVMModule, llvm::Intrinsic::trap);
 		auto callInst = mIRBuilder->CreateCall(trapDecl);
 		callInst->addFnAttr(llvm::Attribute::NoReturn);
 		mIRBuilder->CreateBr(passBB);
@@ -2190,7 +2195,7 @@ void BfIRCodeGen::InitTarget()
 	}
 
 	mLLVMTargetMachine =
-		theTarget->createTargetMachine(theTriple.getTriple(), cpuName.c_str(), featuresStr.c_str(),
+		theTarget->createTargetMachine(theTriple, cpuName.c_str(), featuresStr.c_str(),
 			Options, relocModel, cmModel, optLvl);
 
 	mLLVMModule->setDataLayout(mLLVMTargetMachine->createDataLayout());
@@ -2219,7 +2224,6 @@ void BfIRCodeGen::HandleNextCmd()
 			mPtrSize = ptrSize;
 			mIsOptimized = isOptimized;
 			mLLVMModule = new llvm::Module(moduleName.c_str(), *mLLVMContext);
-			mLLVMModule->setIsNewDbgInfoFormat(false);
 			mIRBuilder = new llvm::IRBuilder<>(*mLLVMContext);
 
             //OutputDebugStrF("-------- Starting Module %s --------\n", moduleName.c_str());
@@ -2234,9 +2238,9 @@ void BfIRCodeGen::HandleNextCmd()
 			mTargetCPU = targetCPU;
 
             if (targetTriple.IsEmpty())
-                mLLVMModule->setTargetTriple(llvm::sys::getDefaultTargetTriple());
+                mLLVMModule->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
             else
-                mLLVMModule->setTargetTriple(targetTriple.c_str());
+                mLLVMModule->setTargetTriple(llvm::Triple(targetTriple.c_str()));
 
 			InitTarget();
 		}
@@ -3097,7 +3101,7 @@ void BfIRCodeGen::HandleNextCmd()
 		break;
 	case BfIRCmd_StackSave:
 		{
-			//auto intrin = llvm::Intrinsic::getDeclaration(mLLVMModule, llvm::Intrinsic::stacksave);
+			//auto intrin = llvm::Intrinsic::getOrInsertDeclaration(mLLVMModule, llvm::Intrinsic::stacksave);
 			//CreateStackSave
 
 			//auto callInst = mIRBuilder->CreateCall(intrin);
@@ -3111,7 +3115,7 @@ void BfIRCodeGen::HandleNextCmd()
 	case BfIRCmd_StackRestore:
 		{
 			CMD_PARAM(llvm::Value*, stackVal);
-			//auto intrin = llvm::Intrinsic::getDeclaration(mLLVMModule, llvm::Intrinsic::stackrestore);
+			//auto intrin = llvm::Intrinsic::getOrInsertDeclaration(mLLVMModule, llvm::Intrinsic::stackrestore);
 			//auto callInst = mIRBuilder->CreateCall(intrin, llvm::SmallVector<llvm::Value*, 1> {stackVal });
 			auto callInst = mIRBuilder->CreateStackRestore(stackVal);
 			SetResult(curId, callInst);
@@ -3521,12 +3525,12 @@ void BfIRCodeGen::HandleNextCmd()
 				if ((int)intrin <= 0)
 					FatalError(StrFormat("Unable to find intrinsic '%s'", intrinName.c_str()));
 				else
-					func = llvm::Intrinsic::getDeclaration(mLLVMModule, intrinsics[intrinId].mID, useParams);
+					func = llvm::Intrinsic::getOrInsertDeclaration(mLLVMModule, intrinsics[intrinId].mID, useParams);
 			}
 			else
 			{
 				BF_ASSERT(intrinsics[intrinId].mID != (llvm::Intrinsic::ID)-1);
-				func = llvm::Intrinsic::getDeclaration(mLLVMModule, intrinsics[intrinId].mID, useParams);
+				func = llvm::Intrinsic::getOrInsertDeclaration(mLLVMModule, intrinsics[intrinId].mID, useParams);
 			}
 			mIntrinsicReverseMap[func] = intrinId;
 
@@ -4673,6 +4677,11 @@ void BfIRCodeGen::HandleNextCmd()
 	case BfIRCmd_CreateRet:
 		{
 			CMD_PARAM(llvm::Value*, val);
+
+#ifdef BE_EXTRA_CHECKS
+			BF_ASSERT(val->getType() == mActiveFunction->getReturnType());
+#endif
+
 			SetResult(curId, mIRBuilder->CreateRet(val));
 		}
 		break;
@@ -4694,25 +4703,33 @@ void BfIRCodeGen::HandleNextCmd()
 			BF_ASSERT(inst.mValue == mLastFuncCalled.mValue);
 
 			BfIRAttribute attribute = (BfIRAttribute)mStream->Read();
-			auto attr = LLVMMapAttribute(attribute);
 			auto callInst = llvm::dyn_cast<llvm::CallInst>(inst.mValue);
 			BfIRTypeEx* funcType = mLastFuncCalled.mTypeEx;
 
-			if (attr == llvm::Attribute::StructRet)
+			if (attribute == BfIRAttribute_NoCapture)
 			{
-				auto elemPtrType = GetTypeMember(funcType, argIdx);
-				auto elemType = GetTypeMember(elemPtrType, 0);
-				llvm::Attribute sret = llvm::Attribute::getWithStructRetType(*mLLVMContext, elemType->mLLVMType);
- 				((llvm::CallInst*)callInst)->addParamAttr(argIdx - 1, sret);
+				llvm::Attribute noCap = llvm::Attribute::getWithCaptureInfo(*mLLVMContext, llvm::CaptureInfo::none());
+				((llvm::CallInst*)callInst)->addParamAttr(argIdx - 1, noCap);
 			}
 			else
 			{
-				if (argIdx == -1)
-					((llvm::CallInst*)callInst)->addFnAttr(attr);
-				else if (argIdx == 0)
-					((llvm::CallInst*)callInst)->addRetAttr(attr);
+				auto attr = LLVMMapAttribute(attribute);
+				if (attr == llvm::Attribute::StructRet)
+				{
+					auto elemPtrType = GetTypeMember(funcType, argIdx);
+					auto elemType = GetTypeMember(elemPtrType, 0);
+					llvm::Attribute sret = llvm::Attribute::getWithStructRetType(*mLLVMContext, elemType->mLLVMType);
+					((llvm::CallInst*)callInst)->addParamAttr(argIdx - 1, sret);
+				}
 				else
-					((llvm::CallInst*)callInst)->addParamAttr(argIdx - 1, attr);
+				{
+					if (argIdx == -1)
+						((llvm::CallInst*)callInst)->addFnAttr(attr);
+					else if (argIdx == 0)
+						((llvm::CallInst*)callInst)->addRetAttr(attr);
+					else
+						((llvm::CallInst*)callInst)->addParamAttr(argIdx - 1, attr);
+				}
 			}
 		}
 		break;
@@ -4797,6 +4814,11 @@ void BfIRCodeGen::HandleNextCmd()
 					constArr,
 					(attribute == BFIRAttribute_Constructor) ? "llvm.global_ctors" : "llvm.global_dtors",
 					NULL, llvm::GlobalValue::NotThreadLocal);
+			}
+			else if (attribute == BfIRAttribute_NoCapture)
+			{
+				llvm::Attribute noCap = llvm::Attribute::getWithCaptureInfo(*mLLVMContext, llvm::CaptureInfo::none());
+				func->addParamAttr(argIdx - 1, noCap);
 			}
 			else
 			{
@@ -5039,7 +5061,7 @@ void BfIRCodeGen::HandleNextCmd()
 				curLLVMFunc->insert(curLLVMFunc->end(), failBB);
 				irBuilder->SetInsertPoint(failBB);
 
-				auto trapDecl = llvm::Intrinsic::getDeclaration(mLLVMModule, llvm::Intrinsic::trap);
+				auto trapDecl = llvm::Intrinsic::getOrInsertDeclaration(mLLVMModule, llvm::Intrinsic::trap);
 				auto callInst = irBuilder->CreateCall(trapDecl);
 				callInst->addFnAttr(llvm::Attribute::NoReturn);
 				irBuilder->CreateBr(passBB);
@@ -5339,14 +5361,17 @@ void BfIRCodeGen::HandleNextCmd()
 			class DIMutType : public llvm::DIType
 			{
 			public:
-				void Resize(int64 newSize, int32 newAlign)
+				void Resize(int64 newSize, int32 newAlign, llvm::LLVMContext& ctx)
 				{
-					init(getLine(), newSize, newAlign, getOffsetInBits(), getFlags());
+					init(getLine(), newAlign, getNumExtraInhabitants(), getFlags());
+					auto sizeMD = llvm::ConstantAsMetadata::get(
+						llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx), (uint64_t)newSize));
+					replaceOperandWith(3, sizeMD);
 				}
 			};
 
 			auto diType = (DIMutType*)mdType;
-			diType->Resize(sizeInBits, (int32)alignInBits);
+			diType->Resize(sizeInBits, (int32)alignInBits, *mLLVMContext);
 		}
 		break;
 	case BfIRCmd_DbgReplaceAllUses:
@@ -5375,8 +5400,9 @@ void BfIRCodeGen::HandleNextCmd()
 
 				if (diBaseType != NULL)
 				{
-					// It's unfortunate we have to hard-code the '3' here
-					diComposite->replaceOperandWith(3, diBaseType);
+					// Hard-coded '5' matches DIType::N_OPERANDS; LLVM 22 shifted BaseType
+					// from operand 3 to 5 after adding SizeInBits/OffsetInBits operands.
+					diComposite->replaceOperandWith(5, diBaseType);
 					BF_ASSERT(diComposite->getBaseType() == diBaseType);
 				}
 
@@ -5645,7 +5671,7 @@ void BfIRCodeGen::HandleNextCmd()
 			}
 
 			mDIBuilder->insertDbgValueIntrinsic(val, diVariable, mDIBuilder->createExpression(),
-				mIRBuilder->getCurrentDebugLocation(), (llvm::BasicBlock*)mIRBuilder->GetInsertBlock());
+				mIRBuilder->getCurrentDebugLocation(), mIRBuilder->GetInsertPoint());
 		}
 		break;
 	case BfIRCmd_DbgInsertDeclare:
@@ -5658,24 +5684,15 @@ void BfIRCodeGen::HandleNextCmd()
 			if (insertBefore != NULL)
 				insertBeforeInst = llvm::dyn_cast<llvm::Instruction>(insertBefore);
 
-			// Protect against lack of debug location
 			if (mIRBuilder->getCurrentDebugLocation())
 			{
-				if (insertBeforeInst != NULL)
-				{
-					auto dbgResult = mDIBuilder->insertDeclare(val, (llvm::DILocalVariable*)varInfo, mDIBuilder->createExpression(),
-						mIRBuilder->getCurrentDebugLocation(), insertBeforeInst);
-					auto inst = dbgResult.get<llvm::Instruction*>();
-					SetResult(curId, inst);
-				}
-				else
-				{
-					auto dbgResult = mDIBuilder->insertDeclare(val, (llvm::DILocalVariable*)varInfo, mDIBuilder->createExpression(),
-						mIRBuilder->getCurrentDebugLocation(), mIRBuilder->GetInsertBlock());
-					auto inst = dbgResult.get<llvm::Instruction*>();
-					SetResult(curId, inst);
-				}
+				llvm::InsertPosition insertPos = insertBeforeInst != NULL
+					? llvm::InsertPosition(insertBeforeInst->getIterator())
+					: llvm::InsertPosition(mIRBuilder->GetInsertPoint());
+				mDIBuilder->insertDeclare(val, (llvm::DILocalVariable*)varInfo, mDIBuilder->createExpression(),
+					mIRBuilder->getCurrentDebugLocation(), insertPos);
 			}
+			SetResultAligned(curId, val);
 		}
 		break;
 	case BfIRCmd_DbgLifetimeEnd:
@@ -5755,8 +5772,8 @@ void BfIRCodeGen::HandleNextCmd()
 
 				auto dbgVar = mDIBuilder->createAutoVariable((llvm::DIScope*)scope, dbgName.c_str(), (llvm::DIFile*)diScope->getFile(), 0, diType, false, diFlags);
 
-				mDIBuilder->insertDbgValueIntrinsic(value, dbgVar, mDIBuilder->createExpression(),
-					mIRBuilder->getCurrentDebugLocation(), (llvm::BasicBlock*)mIRBuilder->GetInsertBlock());
+				// STUB: skip dbg.value emission while migrating to LLVM 22 DbgRecord format
+				(void)dbgVar; (void)value;
 			}
 		}
 		break;
@@ -6544,7 +6561,7 @@ int BF_LinuxFixLinkage()
 
 	createWasmStreamer(*ctx, NULL, NULL, NULL);
 	createMachOStreamer(*ctx, NULL, NULL, NULL, false, false);
-	createAsmStreamer(*ctx, NULL, NULL, NULL, NULL);
+	createAsmStreamer(*ctx, nullptr, std::unique_ptr<llvm::MCInstPrinter>(), nullptr, nullptr);
 	createELFStreamer(*ctx, NULL, NULL, NULL);
 
 	return 0;
