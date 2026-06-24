@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -97,6 +98,19 @@ static bool IsKnownCRuntimeFunction(const StringImpl& name)
 		(name == "memcpy") ||
 		(name == "memmove") ||
 		(name == "memset") ||
+		(name == "realloc") ||
+		(name == "_fseeki64") ||
+		(name == "_fstat64i32") ||
+		(name == "_ftelli64") ||
+		(name == "_utime64") ||
+		(name == "fclose") ||
+		(name == "fflush") ||
+		(name == "fopen") ||
+		(name == "fread") ||
+		(name == "freopen") ||
+		(name == "fseeko") ||
+		(name == "ftello") ||
+		(name == "fwrite") ||
 		(name == "select") ||
 		(name == "exit") ||
 		(name == "strtod") ||
@@ -106,6 +120,9 @@ static bool IsKnownCRuntimeFunction(const StringImpl& name)
 		(name == "strtoll") ||
 		(name == "strtoul") ||
 		(name == "strtoull") ||
+		(name == "localtime") ||
+		(name == "mktime") ||
+		(name == "time") ||
 		(name == "abort");
 }
 
@@ -145,6 +162,13 @@ static int GetStride(BeType* type)
 	int size = NormalizeSize(type->mSize);
 	int align = NormalizeAlign(type->mAlign);
 	return BF_ALIGN(size, align);
+}
+
+static int GetStorageSize(BeType* type)
+{
+	if (type == NULL)
+		return 1;
+	return GetStride(type);
 }
 
 static int GetAggregateElementByteOffset(BeType* aggType, int idx)
@@ -246,7 +270,7 @@ static const char* GetUnsignedMathCastType(BeType* type)
 
 static String GetOpaqueCppType(BeType* type)
 {
-	return StrFormat("::bf::OpaqueValue<%d, %d>", NormalizeSize(type->mSize), NormalizeAlign(type->mAlign));
+	return StrFormat("::bf::OpaqueValue<%d, %d>", GetStorageSize(type), NormalizeAlign(type->mAlign));
 }
 
 static String GetCppType(BeType* type)
@@ -617,8 +641,16 @@ public:
 		case BeTypeCode_Int64:
 			return StrFormat("static_cast<int64_t>(%s)", GetInt64LiteralExpr((int64)constant->mInt64).c_str());
 		case BeTypeCode_Float:
+			if (std::isnan(constant->mDouble))
+				return std::signbit(constant->mDouble) ? "-std::numeric_limits<float>::quiet_NaN()" : "std::numeric_limits<float>::quiet_NaN()";
+			if (std::isinf(constant->mDouble))
+				return std::signbit(constant->mDouble) ? "-std::numeric_limits<float>::infinity()" : "std::numeric_limits<float>::infinity()";
 			return StrFormat("static_cast<float>(%.9g)", (float)constant->mDouble);
 		case BeTypeCode_Double:
+			if (std::isnan(constant->mDouble))
+				return std::signbit(constant->mDouble) ? "-std::numeric_limits<double>::quiet_NaN()" : "std::numeric_limits<double>::quiet_NaN()";
+			if (std::isinf(constant->mDouble))
+				return std::signbit(constant->mDouble) ? "-std::numeric_limits<double>::infinity()" : "std::numeric_limits<double>::infinity()";
 			return StrFormat("static_cast<double>(%.17g)", constant->mDouble);
 		default:
 			return StrFormat("%s{}", typeName.c_str());
@@ -763,6 +795,18 @@ public:
 		return StrFormat("((%s) %s (%s))", lhs.c_str(), op, rhs.c_str());
 	}
 
+	String GetIntrinsicModExpr(BeCallInst* callInst)
+	{
+		if (callInst->mArgs.size() < 2)
+			return "0";
+		auto lhs = GetValueExpr(callInst->mArgs[0].mValue);
+		auto rhs = GetValueExpr(callInst->mArgs[1].mValue);
+		auto resultType = callInst->GetType();
+		if (IsFloatType(resultType))
+			return StrFormat("std::fmod((%s), (%s))", lhs.c_str(), rhs.c_str());
+		return StrFormat("((%s) %% (%s))", lhs.c_str(), rhs.c_str());
+	}
+
 	const char* GetAtomicMemoryOrderExpr(int memoryKind)
 	{
 		switch (memoryKind & BfIRAtomicOrdering_ORDERMASK)
@@ -820,7 +864,10 @@ public:
 		case BeBinaryOpKind_SDivide: return StrFormat("((%s) / (%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_UDivide:
 			return StrFormat("((%s)((%s) / (%s)))", resultTypeName.c_str(), lhsUnsigned.c_str(), rhsUnsigned.c_str());
-		case BeBinaryOpKind_SModulus: return StrFormat("((%s) %% (%s))", lhs.c_str(), rhs.c_str());
+		case BeBinaryOpKind_SModulus:
+			if (IsFloatType(resultType))
+				return StrFormat("std::fmod((%s), (%s))", lhs.c_str(), rhs.c_str());
+			return StrFormat("((%s) %% (%s))", lhs.c_str(), rhs.c_str());
 		case BeBinaryOpKind_UModulus:
 			return StrFormat("((%s)((%s) %% (%s)))", resultTypeName.c_str(), lhsUnsigned.c_str(), rhsUnsigned.c_str());
 		case BeBinaryOpKind_BitwiseAnd: return StrFormat("((%s) & (%s))", lhs.c_str(), rhs.c_str());
@@ -1091,7 +1138,7 @@ public:
 				return true;
 				case BfIRIntrinsic_Mod:
 					if (hasRet)
-						emitAssign(GetIntrinsicBinaryExpr(callInst, "%"));
+						emitAssign(GetIntrinsicModExpr(callInst));
 					else
 						mOut += "\tstd::abort();\n";
 				return true;
@@ -1303,6 +1350,60 @@ public:
 				if (argIdx == 1)
 					return StrFormat("reinterpret_cast<char**>(%s)", argExpr.c_str());
 			}
+			if ((funcName == "localtime") || (funcName == "time"))
+			{
+				if (argIdx == 0)
+					return StrFormat("reinterpret_cast<std::time_t*>(%s)", argExpr.c_str());
+			}
+			if (funcName == "mktime")
+			{
+				if (argIdx == 0)
+					return StrFormat("reinterpret_cast<std::tm*>(%s)", argExpr.c_str());
+			}
+			if (funcName == "realloc")
+			{
+				if (argIdx == 1)
+					return StrFormat("(size_t)(%s)", argExpr.c_str());
+			}
+			if ((funcName == "fopen") || (funcName == "freopen"))
+			{
+				if ((argIdx == 0) || (argIdx == 1))
+					return StrFormat("reinterpret_cast<const char*>(%s)", argExpr.c_str());
+			}
+			if ((funcName == "fclose") || (funcName == "fflush") || (funcName == "_ftelli64") || (funcName == "ftello"))
+			{
+				if (argIdx == 0)
+					return StrFormat("reinterpret_cast<FILE*>(%s)", argExpr.c_str());
+			}
+			if ((funcName == "_fseeki64") || (funcName == "fseeko"))
+			{
+				if (argIdx == 0)
+					return StrFormat("reinterpret_cast<FILE*>(%s)", argExpr.c_str());
+			}
+			if ((funcName == "fread") || (funcName == "fwrite"))
+			{
+				if (argIdx == 1)
+					return StrFormat("(size_t)(%s)", argExpr.c_str());
+				if (argIdx == 2)
+					return StrFormat("(size_t)(%s)", argExpr.c_str());
+				if (argIdx == 3)
+					return StrFormat("reinterpret_cast<FILE*>(%s)", argExpr.c_str());
+			}
+			if (funcName == "freopen")
+			{
+				if (argIdx == 2)
+					return StrFormat("reinterpret_cast<FILE*>(%s)", argExpr.c_str());
+			}
+			if (funcName == "_fstat64i32")
+			{
+				if (argIdx == 1)
+					return StrFormat("reinterpret_cast<struct _stat64i32*>(%s)", argExpr.c_str());
+			}
+			if (funcName == "_utime64")
+			{
+				if (argIdx == 1)
+					return StrFormat("reinterpret_cast<struct __utimbuf64*>(%s)", argExpr.c_str());
+			}
 			return argExpr;
 		};
 
@@ -1312,6 +1413,8 @@ public:
 		{
 			callTarget = GetFunctionName(targetFunc);
 			targetFuncName = targetFunc->mName;
+			if (IsKnownCRuntimeFunction(targetFuncName))
+				callTarget = StrFormat("std::%s", targetFuncName.c_str());
 		}
 		else
 		{
@@ -1347,6 +1450,11 @@ public:
 			expr += argExpr;
 		}
 		expr += ")";
+		auto retType = callInst->GetType();
+		if ((targetFuncName == "fopen") || (targetFuncName == "freopen"))
+			return StrFormat("reinterpret_cast<%s>(%s)", GetCppType(retType).c_str(), expr.c_str());
+		if ((targetFuncName == "fread") || (targetFuncName == "fwrite"))
+			return StrFormat("static_cast<%s>(%s)", GetCppType(retType).c_str(), expr.c_str());
 		return expr;
 	}
 
@@ -1520,7 +1628,7 @@ public:
 			if (allocaInst->mArraySize == NULL)
 			{
 				mOut += StrFormat("\talignas(%d) uint8_t %s[%d];\n",
-					NormalizeAlign(allocaInst->mAlign), storageName.c_str(), NormalizeSize(allocaInst->mType->mSize));
+					NormalizeAlign(allocaInst->mAlign), storageName.c_str(), GetStorageSize(allocaInst->mType));
 			}
 			else
 			{
@@ -1694,7 +1802,7 @@ public:
 					else
 					{
 						mOut += StrFormat("\t%s = std::malloc((size_t)(%s) * (size_t)%d);\n", storageName.c_str(),
-							GetValueExpr(allocaInst->mArraySize).c_str(), NormalizeSize(allocaInst->mType->mSize));
+							GetValueExpr(allocaInst->mArraySize).c_str(), GetStorageSize(allocaInst->mType));
 						mOut += StrFormat("\t%s = reinterpret_cast<%s>(%s);\n", GetValueName(allocaInst).c_str(),
 							GetCppType(allocaInst->GetType()).c_str(), storageName.c_str());
 					}
@@ -1726,7 +1834,7 @@ public:
 						if (valType->IsComposite())
 						{
 							String dstPtrExpr = GetValueExpr(storeInst->mPtr);
-							mOut += StrFormat("\tstd::memset(%s, 0, (size_t)%d);\n", dstPtrExpr.c_str(), NormalizeSize(valType->mSize));
+							mOut += StrFormat("\tstd::memset(%s, 0, (size_t)%d);\n", dstPtrExpr.c_str(), GetStorageSize(valType));
 							EmitConstantStore(constVal, valType, dstPtrExpr, 0);
 							continue;
 						}
@@ -1928,7 +2036,14 @@ public:
 		mOut += "#include <cstddef>\n";
 		mOut += "#include <cstdint>\n";
 		mOut += "#include <cstdlib>\n";
+		mOut += "#include <cstdio>\n";
 		mOut += "#include <cstring>\n";
+		mOut += "#include <ctime>\n";
+		mOut += "#include <limits>\n";
+		mOut += "#if defined(_WIN32)\n";
+		mOut += "#include <sys/stat.h>\n";
+		mOut += "#include <sys/utime.h>\n";
+		mOut += "#endif\n";
 		mOut += "#include <atomic>\n";
 		mOut += "#include <cmath>\n\n";
 		mOut += "#if defined(_WIN32)\n";
@@ -2140,7 +2255,7 @@ public:
 		for (auto globalVar : runtimeInitGlobals)
 		{
 			String varName = GetGlobalName(globalVar);
-			mOut += StrFormat("\tstd::memset(&%s, 0, (size_t)%d);\n", varName.c_str(), NormalizeSize(globalVar->mType->mSize));
+			mOut += StrFormat("\tstd::memset(&%s, 0, (size_t)%d);\n", varName.c_str(), GetStorageSize(globalVar->mType));
 			String basePtrExpr = StrFormat("&%s", varName.c_str());
 			EmitConstantStore(globalVar->mInitializer, globalVar->mType, basePtrExpr, 0);
 		}

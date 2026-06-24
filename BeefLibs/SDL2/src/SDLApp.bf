@@ -289,7 +289,7 @@ namespace SDL2
 
 			mRenderer = SDL.CreateRenderer(mWindow, -1, .Accelerated);
 			mScreen = SDL.GetWindowSurface(mWindow);
-			SDLImage.Init(.PNG);
+			SDLImage.Init(.PNG | .JPG);
 			mHasAudio = SDLMixer.OpenAudio(44100, SDLMixer.MIX_DEFAULT_FORMAT, 2, 4096) >= 0;
 
 			SDL.SetRenderDrawBlendMode(mRenderer, .Blend);

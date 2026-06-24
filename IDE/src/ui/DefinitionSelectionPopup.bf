@@ -20,7 +20,7 @@ namespace IDE.ui
 
 	class DefinitionSelectionListViewItem : DarkListViewItem
 	{
-		public const float ROW_HEIGHT = 54;
+		public const float ROW_HEIGHT = 38;
 
 		public DefinitionSelectionPanel mOwner;
 		public int32 mEntryIdx;
@@ -40,12 +40,12 @@ namespace IDE.ui
 			}
 
 			let entry = mOwner.mEntries[mEntryIdx];
-			float insetX = GS!(8);
-			float insetY = GS!(4);
+			float insetX = GS!(4);
+			float insetY = GS!(2);
 			float cardX = insetX;
 			float cardY = insetY;
-			float cardWidth = Math.Max(GS!(40), mWidth - insetX - GS!(10));
-			float cardHeight = Math.Max(GS!(36), mHeight - insetY - GS!(6));
+			float cardWidth = Math.Max(GS!(40), mWidth - insetX - GS!(6));
+			float cardHeight = Math.Max(GS!(30), mHeight - insetY - GS!(3));
 
 			uint32 rowBg = 0xFF2B2D30;
 			uint32 rowBorder = 0xFF393D42;
@@ -71,20 +71,20 @@ namespace IDE.ui
 			using (g.PushColor(rowBorder))
 				g.OutlineRect(cardX, cardY, cardWidth, cardHeight);
 			using (g.PushColor(accent))
-				g.FillRect(cardX, cardY, GS!(3), cardHeight);
+				g.FillRect(cardX, cardY, GS!(2), cardHeight);
 
 			let fileFont = IDEApp.sApp.mCodeFont;
 			g.SetFont(fileFont);
 
-			float iconX = cardX + GS!(10);
-			float iconY = cardY + GS!(12);
+			float iconX = cardX + GS!(8);
+			float iconY = cardY + GS!(7);
 			let iconWidth = AutoComplete.DrawBeefBadge(g, iconX, iconY);
 
-			float textX = iconX + iconWidth + GS!(10);
-			float textRight = cardX + cardWidth - GS!(10);
+			float textX = iconX + iconWidth + GS!(8);
+			float textRight = cardX + cardWidth - GS!(8);
 			float textWidth = Math.Max(GS!(40), textRight - textX);
-			float fileY = cardY + GS!(6);
-			float metaY = cardY + GS!(29);
+			float fileY = cardY + GS!(3);
+			float metaY = cardY + GS!(20);
 
 			String metaText = scope .();
 			metaText.Append(entry.mDirectoryPath);
@@ -137,7 +137,7 @@ namespace IDE.ui
 		{
 			float rowHeight = GS!(DefinitionSelectionListViewItem.ROW_HEIGHT);
 			float visibleRowCount = Math.Min((float)mEntries.Count, 8.0f);
-			return GS!(8) + GS!(HEADER_HEIGHT) + visibleRowCount * rowHeight + GS!(8);
+			return GS!(4) + GS!(HEADER_HEIGHT) + visibleRowCount * rowHeight + GS!(6);
 		}
 
 		public void AddEntry(StringView filePath, int32 line, int32 lineChar)
@@ -246,7 +246,7 @@ namespace IDE.ui
 		public override void Resize(float x, float y, float width, float height)
 		{
 			base.Resize(x, y, width, height);
-			mListView.Resize(GS!(6), GS!(HEADER_HEIGHT) + GS!(4), width - GS!(14), height - GS!(HEADER_HEIGHT) - GS!(10));
+			mListView.Resize(GS!(4), GS!(HEADER_HEIGHT) + GS!(2), width - GS!(10), height - GS!(HEADER_HEIGHT) - GS!(6));
 		}
 	}
 }
